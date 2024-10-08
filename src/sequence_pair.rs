@@ -8,63 +8,89 @@ enum LcsState {
     YLonger
 }
 
-fn inner_compute_lcs_table(
-    lcs_table: &mut Vec<Vec<LcsState>>,
+fn compute_lcs_table(
+    lcs_table: &mut Vec<Vec<(LcsState, i32)>>,
     x: &Vec<i32>,
     y: &Vec<i32>,
+    weights: &Vec<i32>,
     i: i32,
     j: i32
 ) -> i32 {
-    if i < 0 || j < 0 || lcs_table[i as usize][j as usize] != LcsState::Nothing { return 0; }
-    if x[i as usize] == y[j as usize] {
-        let max_len = inner_compute_lcs_table(lcs_table, x, y, i-1, j-1);
-        lcs_table[i as usize][j as usize] = LcsState::Equal;
+    if i < 0 || j < 0 { return 0 }
+    let ui = i as usize;
+    let uj = j as usize;
+    let (state, max_len) = lcs_table[ui][uj];
+    if state != LcsState::Nothing { return max_len }
+
+    if x[ui] == y[uj] {
+        let max_len = compute_lcs_table(
+            lcs_table, x, y, weights, i-1, j-1
+        );
+        lcs_table[ui][uj] = (LcsState::Equal, max_len + weights[x[ui] as usize]);
         return max_len + 1;
     }
-    let max_len_x = inner_compute_lcs_table(lcs_table, x, y, i-1, j);
-    let max_len_y = inner_compute_lcs_table(lcs_table, x, y, i, j-1);
+
+    let max_len_x = compute_lcs_table(
+        lcs_table, x, y, weights, i-1, j
+    );
+    let max_len_y = compute_lcs_table(
+        lcs_table, x, y, weights, i, j-1
+    );
 
     if max_len_x == 0 && max_len_y == 0 { return 0; }
     if max_len_x >= max_len_y {
-        lcs_table[i as usize][j as usize] = LcsState::XLonger;
+        lcs_table[ui][uj] = (LcsState::XLonger, max_len_x);
         max_len_x
     } else {
-        lcs_table[i as usize][j as usize] = LcsState::YLonger;
+        lcs_table[ui][uj] = (LcsState::YLonger, max_len_y);
         max_len_y
     }
 }
 
-fn compute_lcs_table(
-    x: &Vec<i32>,
-    y: &Vec<i32>,
-) -> Vec<Vec<LcsState>> {
-    let len = x.len();
-    assert_eq!(x.len(), y.len());
-    let mut lcs_table: Vec<Vec<LcsState>> = vec![vec![LcsState::Nothing; len]; len];
-    inner_compute_lcs_table(&mut lcs_table, x, y, (len-1) as i32, (len-1) as i32);
-    lcs_table
+fn print_lcs_table(
+    lcs_table: &Vec<Vec<LcsState>>
+) {
+    for v in lcs_table {
+        println!();
+        for state in v {
+            match state {
+                LcsState::Equal   => print!("EQUAL  , "),
+                LcsState::Nothing => print!("NOTHING, "),
+                LcsState::XLonger => print!("XLONGER, "),
+                LcsState::YLonger => print!("YLONGER, ")
+            }
+        }
+    }
+    println!();
 }
 
 fn lcs(
-    lcs_table: &Vec<Vec<LcsState>>,
-    x: &Vec<i32>,
-    ini: usize,
-    i: usize,
-    j: usize,
+    lcs_table: &mut Vec<Vec<(LcsState, i32)>>,
+    weights: &Vec<i32>,
+    x: &Vec<i32>, y: &Vec<i32>,
+    ini: usize, i: usize, j: usize,
 ) -> Vec<i32> {
+    assert_eq!(x.len(), y.len());
+    assert!(x.len() > i);
+    assert!(y.len() > j);
+    assert!(ini <= j && ini <= i);
+    compute_lcs_table(lcs_table, &x, &y, weights, i as i32, j as i32);
     let mut result: Vec<i32> = Vec::new();
-    let mut i: usize = i;
-    let mut j: usize = j;
-    while i >= ini && j >= ini && lcs_table[i][j] != LcsState::Nothing {
-        if lcs_table[i][j] == LcsState::Equal {
-            result.push(x[i]);
+    let ini: i32 = ini as i32;
+    let mut i: i32 = i as i32;
+    let mut j: i32 = j as i32;
+    while i >= ini && j >= ini && lcs_table[i as usize][j as usize].0 != LcsState::Nothing {
+        println!("({}, {})", i, j);
+        if lcs_table[i as usize][j as usize].0 == LcsState::Equal {
+            println!("{}", x[i as usize]);
+            result.insert(0, x[i as usize]);
             i -= 1;
             j -= 1;
         }
-        else if lcs_table[i][j] == LcsState::XLonger {
+        else if lcs_table[i as usize][j as usize].0 == LcsState::XLonger {
             i -= 1;
         }
-        else if lcs_table[i][j] == LcsState::YLonger {
+        else if lcs_table[i as usize][j as usize].0 == LcsState::YLonger {
             j -= 1;
         }
     }
@@ -93,6 +119,15 @@ impl SequencePair {
             self.y.swap(i, (rand::random::<i32>()%(i as i32)).abs() as usize);
         }
     }
+
+    pub fn get_lcs_init_tables(&self) -> Vec<Vec<(LcsState, i32)>> {
+        let len = self.x.len();
+        let lcs_table: Vec<Vec<(LcsState, i32)>> = vec![
+            vec![(LcsState::Nothing, 0); len]; len
+        ];
+        lcs_table
+    }
+
     pub fn new_shuffled(n: i32) -> Self {
         let mut sp = SequencePair::new(n);
         sp.shuffle();
@@ -115,15 +150,13 @@ pub struct FloorPlantProblem {
     blocks_min_heights: Vec<i32>,
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_sequence_pair_creation() {
-        let expected: [i32;4] = [0, 1, 2, 3];
+        let expected: [i32; 4] = [0, 1, 2, 3];
         let sequence_pair = SequencePair::new(4);
         assert_eq!(sequence_pair.x, expected);
         assert_eq!(sequence_pair.y, expected);
@@ -147,40 +180,92 @@ mod tests {
 
     #[test]
     fn simple_test_compute_lcs_table() {
-        let sp = SequencePair::new(4);
+        let n: usize = 4;
+        let sp = SequencePair::new(n as i32);
         let expected_table: Vec<Vec<LcsState>> = vec![
             vec![LcsState::Equal, LcsState::Nothing, LcsState::Nothing, LcsState::Nothing],
             vec![LcsState::Nothing, LcsState::Equal, LcsState::Nothing, LcsState::Nothing],
             vec![LcsState::Nothing, LcsState::Nothing, LcsState::Equal, LcsState::Nothing],
             vec![LcsState::Nothing, LcsState::Nothing, LcsState::Nothing, LcsState::Equal],
         ];
-        let lcs_table = compute_lcs_table(&sp.x, &sp.y);
-        assert_eq!(lcs_table, expected_table);
+        let mut lcs_table = sp.get_lcs_init_tables();
+        let weights = vec![1; n];
+        lcs(&mut lcs_table, &sp.x, &sp.y, &weights,0, n-1, n-1);
+
+        let mut result_table = vec![vec![LcsState::Nothing; n]; n];
+        for i in 0..lcs_table.len() {
+            for j in 0..lcs_table[i].len() {
+                result_table[i][j] = lcs_table[i][j].0;
+            }
+        }
+        assert_eq!(result_table, expected_table);
     }
 
     #[test]
     fn simple_test_2_compute_lcs_table() {
+        let n: usize = 4;
         let x = vec![1, 2, 3, 4];
         let y = vec![3, 1, 2, 4];
+        let sp = SequencePair {x, y};
+
         let expected_table: Vec<Vec<LcsState>> = vec![
             vec![LcsState::Nothing, LcsState::Equal, LcsState::Nothing, LcsState::Nothing],
-            vec![LcsState::Nothing, LcsState::Nothing, LcsState::Equal, LcsState::Nothing],
-            vec![LcsState::Equal, LcsState::YLonger, LcsState::XLonger, LcsState::Nothing],
+            vec![LcsState::Nothing, LcsState::XLonger, LcsState::Equal, LcsState::Nothing],
+            vec![LcsState::Equal, LcsState::XLonger, LcsState::XLonger, LcsState::Nothing],
             vec![LcsState::Nothing, LcsState::Nothing, LcsState::Nothing, LcsState::Equal],
         ];
-        let lcs_table = compute_lcs_table(&x, &y);
-        assert_eq!(lcs_table, expected_table);
+
+        let mut lcs_table = sp.get_lcs_init_tables();
+        let weights = vec![1; n];
+        lcs(&mut lcs_table, &weights, &sp.x, &sp.y, 0, n-1, n-1);
+
+        let mut result_table = vec![vec![LcsState::Nothing; n]; n];
+        for i in 0..lcs_table.len() {
+            for j in 0..lcs_table[i].len() {
+                result_table[i][j] = lcs_table[i][j].0;
+            }
+        }
+        assert_eq!(result_table, expected_table);
+    }
+
+    #[test]
+    fn simple_test_3_compute_lcs_table() {
+        let n: usize = 4;
+        let x = vec![4, 2, 3, 1];
+        let y = vec![4, 1, 2, 3];
+        let sp = SequencePair {x, y};
+
+        let expected_table: Vec<Vec<LcsState>> = vec![
+            vec![LcsState::Equal, LcsState::YLonger, LcsState::Nothing, LcsState::Nothing],
+            vec![LcsState::XLonger, LcsState::XLonger, LcsState::Equal, LcsState::Nothing],
+            vec![LcsState::XLonger, LcsState::XLonger, LcsState::XLonger, LcsState::Equal],
+            vec![LcsState::Nothing, LcsState::Equal, LcsState::XLonger, LcsState::XLonger],
+        ];
+
+        let weights = vec![1; n];
+        let mut lcs_table = sp.get_lcs_init_tables();
+        lcs(&mut lcs_table, &weights, &sp.x, &sp.y, 0, n-1, n-1);
+
+        let mut result_table = vec![vec![LcsState::Nothing; n]; n];
+        for i in 0..lcs_table.len() {
+            for j in 0..lcs_table[i].len() {
+                result_table[i][j] = lcs_table[i][j].0;
+            }
+        }
+        assert_eq!(result_table, expected_table);
     }
 
     #[test]
     fn test_random_lcs_table() {
         for _ in 0..100 {
             let sp = SequencePair::new_shuffled(10);
-            let lcs_table = compute_lcs_table(&sp.x, &sp.y);
+            let mut lcs_table = sp.get_lcs_init_tables();
+            let weights = vec![1; 10];
+            lcs(&mut lcs_table, &weights, &sp.x, &sp.y, 0, sp.x.len()-1, sp.y.len()-1);
             let mut how_many_equals: i32 = 0;
             for i in 0..sp.x.len() {
                 for j in 0..sp.y.len() {
-                    if lcs_table[i][j] == LcsState::Equal {
+                    if lcs_table[i][j].0 == LcsState::Equal {
                         assert_eq!(sp.x[i], sp.y[j]);
                         how_many_equals += 1;
                     }
@@ -193,6 +278,29 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_lcs() {
+        let x: Vec<i32> = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let y: Vec<i32> = vec![0, 1, 5, 6, 8, 9, 2, 4, 3, 10, 7];
 
+        let weights = vec![1, 10];
+        let sp = SequencePair {x, y};
+        let mut lcs_table = sp.get_lcs_init_tables();
 
+        let expected_lcs: Vec<i32> = vec![1, 5, 6, 8, 9, 10];
+        let result_lcs: Vec<i32> = lcs(&mut lcs_table, &weights, &sp.x, &sp.y, 0, 9, 9);
+        assert_eq!(expected_lcs, result_lcs);
+
+        let expected_lcs: Vec<i32> = vec![2, 3];
+        let result_lcs: Vec<i32> = lcs(&mut lcs_table, &weights, &sp.x, &sp.y, 1, 5, 8);
+        assert_eq!(expected_lcs, result_lcs);
+
+        let expected_lcs: Vec<i32> = vec![5, 6, 8];
+        let result_lcs: Vec<i32> = lcs(&mut lcs_table, &weights, &sp.x, &sp.y, 1, 7, 3);
+        assert_eq!(expected_lcs, result_lcs);
+
+        let expected_lcs: Vec<i32> = vec![9, 10];
+        let result_lcs: Vec<i32> = lcs(&mut lcs_table, &weights, &sp.x, &sp.y, 4, 9, 9);
+        assert_eq!(expected_lcs, result_lcs);
+    }
 }
