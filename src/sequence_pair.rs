@@ -1,5 +1,4 @@
 use std::cmp::PartialEq;
-use std::mem::forget;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 enum LcsState {
@@ -42,7 +41,6 @@ fn compute_lcs_table(
         lcs_table, weights, x, y, i, j-1
     );
 
-    if max_len_x == 0 && max_len_y == 0 { return 0; }
     if max_len_x >= max_len_y {
         lcs_table[ui][uj] = (LcsState::XLonger, max_len_x);
         max_len_x
@@ -91,9 +89,7 @@ fn lcs(
     let mut i: i32 = i as i32;
     let mut j: i32 = j as i32;
     while i >= ini && j >= ini && lcs_table[i as usize][j as usize].0 != LcsState::Nothing {
-        println!("({}, {})", i, j);
         if lcs_table[i as usize][j as usize].0 == LcsState::Equal {
-            println!("{}", x[i as usize]);
             result.insert(0, x[i as usize]);
             i -= 1;
             j -= 1;
@@ -117,40 +113,32 @@ fn get_base_weights(
     x: &Vec<i32>,
     y: &Vec<i32>,
 ) -> (Vec<i32>, i32) {
-    println!("Retrieved weights");
-    for w in weights {
-        print!("{}, ", w);
-    }
-    println!();
     let n = x.len();
     let mut base_weights: Vec<i32> = vec![0; n];
     let mut lcs_table = get_lcs_init_table(n);
+    let mut x_positions = vec![0; n];
+    let mut y_positions = vec![0; n];
+    let total_weight = compute_lcs_table(
+        &mut lcs_table,
+        weights, &x, &y,
+        (n as i32)-1,
+        (n as i32)-1
+    );
     for i in 0..n {
-        let positions =
-            (x.iter().position(|&v| v == i as i32),
-             y.iter().position(|&v| v == i as i32));
-        match positions {
-            (Some(x_pos), Some(y_pos)) =>
-                base_weights[i] = compute_lcs_table(
-                    &mut lcs_table,
-                    weights, &x, &y,
-                    (x_pos as i32)-1,
-                    (y_pos as i32)-1,
-                ),
-            _ => println!("ERROR this should not happen! {}", i)
-        }
+        x_positions[x[i] as usize] = i as i32;
+        y_positions[y[i] as usize] = i as i32;
     }
-    let aux =(
-        base_weights,
-        compute_lcs_table(
+    for i in 0..n {
+        base_weights[i] = compute_lcs_table(
             &mut lcs_table,
             weights, &x, &y,
-            (n as i32)-1,
-            (n as i32)-1
+            x_positions[i]-1,
+            y_positions[i]-1,
         )
-    );
-    print_lcs_table(&lcs_table);
-    aux
+    }
+    //print_lcs_table(&lcs_table);
+    //println!();
+    (base_weights, total_weight)
 }
 
 pub struct SequencePair {
@@ -187,48 +175,41 @@ impl SequencePair {
     }
 
     pub fn get_base_heights(&self, heights: &Vec<i32>) -> (Vec<i32>, i32) {
-        let rev_x = self.x.iter().rev().map(|x| *x).collect::<Vec<i32>>();
+        let rev_x = self.x.iter().copied().rev().collect();
         get_base_weights(heights, &rev_x, &self.y)
     }
 
     pub fn visualize(&self, widths: &Vec<i32>, heights: &Vec<i32>) {
+        println!("Getting widths");
         let (width_offsets, width) = self.get_base_widths(widths);
+        println!("Getting heights");
         let (height_offsets, height) = self.get_base_heights(heights);
-        println!("Width offsets");
-        for v in &width_offsets {
-            print!("{}, ", v);
-        }
-        println!();
-        println!("Height offsets");
-        for v in &height_offsets {
-            print!("{}, ", v);
-        }
-        println!();
-        println!("Max width: {}, Max height: {}", width, height);
 
+        println!("Filling visualization matrix");
         let mut vis_mat: Vec<Vec<i32>> = vec![vec![-1; width as usize]; height as usize];
         let n = self.x.len();
         for i in 0..n {
-            println!("{}", i);
             let width_offset: usize = width_offsets[i] as usize;
             let height_offset: usize = height_offsets[i] as usize;
-            println!("w: {}, h: {}", width_offset, height_offset);
             for h in 0..(heights[i] as usize) {
                 for w in 0..(widths[i] as usize) {
                     vis_mat[h+height_offset][w+width_offset] = i as i32
                 }
             }
         }
-        for i in 0..height {
-            for j in 0..width {
-                match vis_mat[i as usize][j as usize] {
-                    -1 => print!(" , "),
-                    v => print!("{}, ", v)
+        println!("Showing matrix");
+        for i in 0..(height as usize) {
+            for j in 0..(width as usize) {
+                match vis_mat[i][j] {
+                    -1 => print!("    | "),
+                    v => print!("{: >4}| ", v)
                 }
             }
-           println!()
+            println!();
+            for _ in 0..(width as usize) {print!("----|-")}
+            println!();
         }
-        println!()
+        println!();
     }
 }
 
@@ -238,6 +219,7 @@ pub struct FloorPlantProblem {
     blocks_min_widths: Vec<i32>,
     blocks_max_heights: Vec<i32>,
     blocks_min_heights: Vec<i32>,
+    blocks_area: Vec<i32>,
 }
 
 #[cfg(test)]
@@ -304,10 +286,9 @@ mod tests {
         let x = vec![0, 1, 2, 3];
         let y = vec![2, 0, 1, 3];
         let sp = SequencePair {x, y};
-
         let expected_table: Vec<Vec<LcsState>> = vec![
-            vec![LcsState::Nothing, LcsState::Equal, LcsState::Nothing, LcsState::Nothing],
-            vec![LcsState::Nothing, LcsState::XLonger, LcsState::Equal, LcsState::Nothing],
+            vec![LcsState::XLonger, LcsState::Equal, LcsState::Nothing, LcsState::Nothing],
+            vec![LcsState::XLonger, LcsState::XLonger, LcsState::Equal, LcsState::Nothing],
             vec![LcsState::Equal, LcsState::XLonger, LcsState::XLonger, LcsState::Nothing],
             vec![LcsState::Nothing, LcsState::Nothing, LcsState::Nothing, LcsState::Equal],
         ];
@@ -323,8 +304,6 @@ mod tests {
             }
         }
         assert_eq!(result_table, expected_table);
-        sp.visualize(&vec![2, 3, 6, 2], &vec![2, 3, 6, 2]);
-        assert!(false)
     }
 
     #[test]
@@ -405,6 +384,50 @@ mod tests {
         assert_eq!(expected_lcs, result_lcs);
     }
 
-    //#[test]
-    //fn test_widths
+    #[test]
+    fn test_widths_and_heights() {
+        let n: i32 = 6;
+        let sp: SequencePair = SequencePair {
+            x: vec![1, 3, 2, 4, 5, 0],
+            y: vec![3, 1, 0, 4, 5, 2]
+        };
+        let heights = vec![6, 6, 3, 3, 6, 6];
+        let widths = vec![3, 3, 4, 4, 2, 2];
+        let (height_offsets, total_height) = sp.get_base_heights(&heights);
+        let (width_offsets, total_width) = sp.get_base_widths(&widths);
+
+        let expected_height_offsets = vec![0, 3, 12, 0, 6, 6];
+        let expected_total_height = 15;
+        let expected_width_offsets = vec![4, 0, 4, 0, 4, 6];
+        let expected_total_width = 8;
+
+        assert_eq!(expected_height_offsets, height_offsets);
+        assert_eq!(expected_total_height, total_height);
+        assert_eq!(expected_width_offsets, width_offsets);
+        assert_eq!(expected_total_width, total_width);
+
+    }
+
+    #[test]
+    fn test_widths_and_heights_2() {
+        let n: i32 = 6;
+        let sp: SequencePair = SequencePair {
+            x: vec![1, 0, 2, 4, 5, 3],
+            y: vec![0, 1, 3, 4, 5, 2]
+        };
+        let heights = vec![6, 6, 3, 3, 6, 6];
+        let widths = vec![3, 3, 4, 4, 2, 2];
+        let (height_offsets, total_height) = sp.get_base_heights(&heights);
+        let (width_offsets, total_width) = sp.get_base_widths(&widths);
+
+        let expected_height_offsets = vec![0, 6, 9, 0, 3, 3];
+        let expected_total_height = 12;
+        let expected_width_offsets = vec![0, 0, 3, 3, 3, 5];
+        let expected_total_width = 7;
+
+        assert_eq!(expected_height_offsets, height_offsets);
+        assert_eq!(expected_total_height, total_height);
+        assert_eq!(expected_width_offsets, width_offsets);
+        assert_eq!(expected_total_width, total_width);
+    }
 }
