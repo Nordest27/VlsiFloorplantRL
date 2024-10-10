@@ -7,6 +7,66 @@ enum LcsState {
     XLonger,
     YLonger
 }
+fn iterative_compute_lcs_table(
+    lcs_table: &mut Vec<Vec<(LcsState, i32)>>,
+    weights: &Vec<i32>,
+    x: &Vec<i32>,
+    y: &Vec<i32>,
+    inp_i: i32,
+    inp_j: i32
+) -> i32 {
+    if inp_i < 0 || inp_j < 0 { return 0; }
+    let mut positions: Vec<(i32, i32)> = vec![(inp_i, inp_j)];
+    let mut eval_positions: Vec<(usize, usize)> = Vec::new();
+
+    while let Some((i, j)) = positions.pop() {
+        if i < 0 || j < 0 { continue }
+        let ui = i as usize;
+        let uj = j as usize;
+        if lcs_table[ui][uj].1 != -1 { continue }
+        lcs_table[ui][uj].1 = 0;
+
+        //println!("first ui: {}, uj: {}", ui, uj);
+        eval_positions.push((ui, uj));
+
+        if x[ui] == y[uj] {
+            positions.push((i - 1, j - 1));
+            continue;
+        }
+        positions.push((i - 1, j));
+        positions.push((i, j - 1));
+    }
+
+    eval_positions.sort();
+
+
+    for (ui, uj) in eval_positions {
+        //println!("second ui: {}, uj: {}", ui, uj);
+        if x[ui] == y[uj] {
+            let max_len = match ui > 0 && uj > 0 {
+                true => lcs_table[ui - 1][uj - 1].1,
+                false => 0
+            };
+            lcs_table[ui][uj] = (LcsState::Equal, max_len + weights[x[ui] as usize]);
+            continue;
+        }
+        let max_len_x = match ui > 0 {
+            true => lcs_table[ui - 1][uj].1,
+            false => 0
+        };
+        let max_len_y = match uj > 0 {
+            true => lcs_table[ui][uj - 1].1,
+            false => 0
+        };
+        if max_len_x >= max_len_y {
+            lcs_table[ui][uj] = (LcsState::XLonger, max_len_x);
+        } else {
+            lcs_table[ui][uj] = (LcsState::YLonger, max_len_y);
+        }
+    }
+
+    lcs_table[inp_i as usize][inp_j as usize].1
+}
 
 fn compute_lcs_table(
     lcs_table: &mut Vec<Vec<(LcsState, i32)>>,
@@ -105,7 +165,7 @@ fn lcs(
 }
 
 pub fn get_lcs_init_table(n: usize) -> Vec<Vec<(LcsState, i32)>> {
-    vec![vec![(LcsState::Nothing, 0); n]; n]
+    vec![vec![(LcsState::Nothing, -1); n]; n]
 }
 
 fn get_base_weights(
@@ -118,7 +178,7 @@ fn get_base_weights(
     let mut lcs_table = get_lcs_init_table(n);
     let mut x_positions = vec![0; n];
     let mut y_positions = vec![0; n];
-    let total_weight = compute_lcs_table(
+    let total_weight = iterative_compute_lcs_table(
         &mut lcs_table,
         weights, &x, &y,
         (n as i32)-1,
@@ -129,7 +189,7 @@ fn get_base_weights(
         y_positions[y[i] as usize] = i as i32;
     }
     for i in 0..n {
-        base_weights[i] = compute_lcs_table(
+        base_weights[i] = iterative_compute_lcs_table(
             &mut lcs_table,
             weights, &x, &y,
             x_positions[i]-1,
@@ -224,6 +284,7 @@ pub struct FloorPlantProblem {
 
 #[cfg(test)]
 mod tests {
+    use rand::random;
     use super::*;
 
     #[test]
@@ -335,8 +396,8 @@ mod tests {
 
     #[test]
     fn test_random_lcs_table() {
+        let n: usize = 10;
         for _ in 0..100 {
-            let n: usize = 10;
             let sp = SequencePair::new_shuffled(n as i32);
             let mut lcs_table = get_lcs_init_table(n);
             let weights = vec![1; n];
@@ -429,5 +490,32 @@ mod tests {
         assert_eq!(expected_total_height, total_height);
         assert_eq!(expected_width_offsets, width_offsets);
         assert_eq!(expected_total_width, total_width);
+    }
+
+    #[test]
+    fn test_recursive_and_iterative_compute_lcs_table() {
+        let n: usize = 4;
+        for iter in 0..100 {
+            println!("Iter {}", iter);
+            let sp = SequencePair::new_shuffled(n as i32);
+            let mut weights = vec![0; n];
+            for i in 0..n { weights[i] = random::<i32>().abs()%10 }
+            let mut rec_lcs_table = get_lcs_init_table(n);
+            let mut ite_lcs_table = get_lcs_init_table(n);
+            let rec_full_weight = compute_lcs_table(
+                &mut rec_lcs_table, &weights,
+                &sp.x, &sp.y,
+                (n-1) as i32, (n-1) as i32
+            );
+            let ite_full_weight = iterative_compute_lcs_table(
+                &mut ite_lcs_table, &weights,
+                &sp.x, &sp.y,
+                (n-1) as i32, (n-1) as i32
+            );
+            print_lcs_table(&rec_lcs_table);
+            print_lcs_table(&ite_lcs_table);
+            assert_eq!(rec_full_weight, ite_full_weight);
+            assert_eq!(rec_lcs_table, ite_lcs_table);
+        }
     }
 }

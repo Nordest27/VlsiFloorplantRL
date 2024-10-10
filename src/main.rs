@@ -5,7 +5,7 @@ use crate::sequence_pair::SequencePair;
 mod sequence_pair;
 
 fn main() {
-    let n: i32 = 10;
+    let n: i32 = 20;
     let sp: SequencePair = SequencePair::new_shuffled(n);
     let mut widths = vec![0; n as usize];
     let mut heights = vec![0; n as usize];
