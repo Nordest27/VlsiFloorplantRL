@@ -1,137 +1,71 @@
 use std::cmp::PartialEq;
+use rand::random;
 
-#[derive(PartialEq, Debug, Copy, Clone)]
-enum LcsState {
-    Nothing,
-    Equal,
-    XLonger,
-    YLonger
-}
 fn iterative_compute_lcs_table(
-    lcs_table: &mut Vec<Vec<(LcsState, i32)>>,
     weights: &Vec<i32>,
     x: &Vec<i32>,
     y: &Vec<i32>,
-    inp_i: i32,
-    inp_j: i32
-) -> i32 {
-    if inp_i < 0 || inp_j < 0 { return 0; }
-    let mut positions: Vec<(i32, i32)> = vec![(inp_i, inp_j)];
-    let mut eval_positions: Vec<(usize, usize)> = Vec::new();
-
-    while let Some((i, j)) = positions.pop() {
-        if i < 0 || j < 0 { continue }
-        let ui = i as usize;
-        let uj = j as usize;
-        if lcs_table[ui][uj].1 != -1 { continue }
-        lcs_table[ui][uj].1 = 0;
-
-        //println!("first ui: {}, uj: {}", ui, uj);
-        eval_positions.push((ui, uj));
-
-        if x[ui] == y[uj] {
-            positions.push((i - 1, j - 1));
-            continue;
-        }
-        positions.push((i - 1, j));
-        positions.push((i, j - 1));
-    }
-
-    eval_positions.sort();
-
-
-    for (ui, uj) in eval_positions {
-        //println!("second ui: {}, uj: {}", ui, uj);
-        if x[ui] == y[uj] {
-            let max_len = match ui > 0 && uj > 0 {
-                true => lcs_table[ui - 1][uj - 1].1,
-                false => 0
-            };
-            lcs_table[ui][uj] = (LcsState::Equal, max_len + weights[x[ui] as usize]);
-            continue;
-        }
-        let max_len_x = match ui > 0 {
-            true => lcs_table[ui - 1][uj].1,
-            false => 0
-        };
-        let max_len_y = match uj > 0 {
-            true => lcs_table[ui][uj - 1].1,
-            false => 0
-        };
-        if max_len_x >= max_len_y {
-            lcs_table[ui][uj] = (LcsState::XLonger, max_len_x);
-        } else {
-            lcs_table[ui][uj] = (LcsState::YLonger, max_len_y);
+) -> Vec<Vec<i32>> {
+    let n = weights.len();
+    let mut lcs_table = vec![vec![0; n+1]; n+1];
+    for ui in 1..(n+1) {
+        for uj in 1..(n+1) {
+            if x[ui-1] == y[uj-1] {
+                lcs_table[ui][uj] = lcs_table[ui-1][uj-1] + weights[x[ui-1] as usize];
+            }
+            else {
+                lcs_table[ui][uj] = lcs_table[ui - 1][uj].max(lcs_table[ui][uj - 1]);
+            }
         }
     }
+    lcs_table
+}
 
-    lcs_table[inp_i as usize][inp_j as usize].1
+pub fn get_lcs_init_table(n: usize) -> Vec<Vec<i32>> {
+    vec![vec![-1; n+1]; n+1]
 }
 
 fn compute_lcs_table(
-    lcs_table: &mut Vec<Vec<(LcsState, i32)>>,
+    lcs_table: &mut Vec<Vec<i32>>,
     weights: &Vec<i32>,
     x: &Vec<i32>,
     y: &Vec<i32>,
     i: i32,
     j: i32
-) -> i32 {
-    if i < 0 || j < 0 { return 0 }
+) -> i32{
+    if i < 1 || j < 1 { return 0 }
+
     let ui = i as usize;
     let uj = j as usize;
-    let (state, max_len) = lcs_table[ui][uj];
-    if state != LcsState::Nothing { return max_len }
 
-    if x[ui] == y[uj] {
-        // print!("EQ! x[{}] = {}, y[{}] = {}\n", ui, x[ui], uj, y[uj]);
-        let max_len = compute_lcs_table(
-            lcs_table, weights, x, y,i-1, j-1
-        );
-        // println!("Weights length: {}", weights.len());
-        // println!("X length: {}", x.len());
-        lcs_table[ui][uj] = (LcsState::Equal, max_len + weights[x[ui] as usize]);
-        return lcs_table[ui][uj].1;
+    if lcs_table[ui][uj] != -1 { return lcs_table[ui][uj] }
+
+    if x[ui-1] == y[uj-1] {
+        compute_lcs_table(lcs_table, weights, x, y,i-1, j-1);
+        lcs_table[ui][uj] = lcs_table[ui-1][uj-1].max(0) + weights[x[ui-1] as usize];
+        return lcs_table[ui][uj];
     }
-    // print!("NEQ! x[{}] = {}, y[{}] = {}\n", ui, x[ui], uj, y[uj]);
+    compute_lcs_table(lcs_table, weights, x, y, i-1, j);
+    compute_lcs_table(lcs_table, weights, x, y, i, j-1);
 
-    let max_len_x = compute_lcs_table(
-        lcs_table, weights, x, y, i-1, j
-    );
-    let max_len_y = compute_lcs_table(
-        lcs_table, weights, x, y, i, j-1
-    );
-
-    if max_len_x >= max_len_y {
-        lcs_table[ui][uj] = (LcsState::XLonger, max_len_x);
-        max_len_x
-    } else {
-        lcs_table[ui][uj] = (LcsState::YLonger, max_len_y);
-        max_len_y
-    }
+    lcs_table[ui][uj] = lcs_table[ui - 1][uj].max(lcs_table[ui][uj - 1]).max(0);
+    lcs_table[ui][uj]
 }
 
 fn print_lcs_table(
-    lcs_table: &Vec<Vec<(LcsState, i32)>>
+    lcs_table: &Vec<Vec<i32>>
 ) {
     for v in lcs_table {
         println!();
-        for (state, max_weight) in v {
-            print!("(");
-            match state {
-                LcsState::Equal   => print!("EQUAL  , "),
-                LcsState::Nothing => print!("NOTHING, "),
-                LcsState::XLonger => print!("XLONGER, "),
-                LcsState::YLonger => print!("YLONGER, ")
-            }
-            print!("{}), ", max_weight);
-
+        for max_weight in v {
+            print!("{}, ", max_weight);
         }
     }
     println!();
 }
-
+/*
 fn lcs(
-    lcs_table: &mut Vec<Vec<(LcsState, i32)>>,
+    lcs_table: &mut Vec<Vec<i32>>,
     weights: &Vec<i32>,
     x: &Vec<i32>,
     y: &Vec<i32>,
@@ -148,8 +82,8 @@ fn lcs(
     let ini: i32 = ini as i32;
     let mut i: i32 = i as i32;
     let mut j: i32 = j as i32;
-    while i >= ini && j >= ini && lcs_table[i as usize][j as usize].0 != LcsState::Nothing {
-        if lcs_table[i as usize][j as usize].0 == LcsState::Equal {
+    while i >= ini && j >= ini && lcs_table[i as usize][j as usize] != -1 {
+        if lcs_table[i as usize][j as usize] == LcsState::Equal {
             result.insert(0, x[i as usize]);
             i -= 1;
             j -= 1;
@@ -163,10 +97,7 @@ fn lcs(
     }
     result
 }
-
-pub fn get_lcs_init_table(n: usize) -> Vec<Vec<(LcsState, i32)>> {
-    vec![vec![(LcsState::Nothing, -1); n]; n]
-}
+*/
 
 fn get_base_weights(
     weights: &Vec<i32>,
@@ -178,22 +109,22 @@ fn get_base_weights(
     let mut lcs_table = get_lcs_init_table(n);
     let mut x_positions = vec![0; n];
     let mut y_positions = vec![0; n];
-    let total_weight = iterative_compute_lcs_table(
+    let total_weight = compute_lcs_table(
         &mut lcs_table,
         weights, &x, &y,
-        (n as i32)-1,
-        (n as i32)-1
+        n as i32,
+        n as i32
     );
     for i in 0..n {
         x_positions[x[i] as usize] = i as i32;
         y_positions[y[i] as usize] = i as i32;
     }
     for i in 0..n {
-        base_weights[i] = iterative_compute_lcs_table(
+        base_weights[i] = compute_lcs_table(
             &mut lcs_table,
             weights, &x, &y,
-            x_positions[i]-1,
-            y_positions[i]-1,
+            x_positions[i],
+            y_positions[i],
         )
     }
     //print_lcs_table(&lcs_table);
@@ -201,9 +132,30 @@ fn get_base_weights(
     (base_weights, total_weight)
 }
 
+fn iterative_get_base_weights(
+    weights: &Vec<i32>,
+    x: &Vec<i32>,
+    y: &Vec<i32>,
+) -> (Vec<i32>, i32) {
+    let n = x.len();
+    let mut base_weights: Vec<i32> = vec![0; n];
+    let mut x_positions = vec![0; n];
+    let mut y_positions = vec![0; n];
+    let lcs_table = iterative_compute_lcs_table(weights, &x, &y);
+    for i in 0..n {
+        x_positions[x[i] as usize] = i;
+        y_positions[y[i] as usize] = i;
+    }
+    for i in 0..n {
+        base_weights[i] = lcs_table[x_positions[i]][y_positions[i]];
+    }
+    (base_weights, lcs_table[n][n])
+}
+
+#[derive(Clone)]
 pub struct SequencePair {
-    x: Vec<i32>,
-    y: Vec<i32>,
+    pub x: Vec<i32>,
+    pub y: Vec<i32>,
 }
 
 impl SequencePair {
@@ -219,8 +171,8 @@ impl SequencePair {
 
     fn shuffle(&mut self) {
         for i in (1..self.x.len()).rev() {
-            self.x.swap(i, (rand::random::<i32>()%(i as i32)).abs() as usize);
-            self.y.swap(i, (rand::random::<i32>()%(i as i32)).abs() as usize);
+            self.x.swap(i, (random::<i32>()%(i as i32)).abs() as usize);
+            self.y.swap(i, (random::<i32>()%(i as i32)).abs() as usize);
         }
     }
 
@@ -229,30 +181,104 @@ impl SequencePair {
         sp.shuffle();
         sp
     }
+}
 
-    pub fn get_base_widths(&self, widths: &Vec<i32>) -> (Vec<i32>, i32) {
-        get_base_weights(widths, &self.x, &self.y)
+pub struct FloorPlantProblem {
+    pub n: i32,
+    pub sp: SequencePair,
+    pub min_widths: Vec<i32>,
+    pub min_heights: Vec<i32>,
+    pub blocks_area: Vec<i32>,
+    pub connected_to: Vec<Vec<bool>>,
+}
+
+impl FloorPlantProblem {
+    pub fn get_base_widths(&self) -> (Vec<i32>, i32) {
+        iterative_get_base_weights(&self.min_widths, &self.sp.x, &self.sp.y)
     }
 
-    pub fn get_base_heights(&self, heights: &Vec<i32>) -> (Vec<i32>, i32) {
-        let rev_x = self.x.iter().copied().rev().collect();
-        get_base_weights(heights, &rev_x, &self.y)
+    pub fn get_base_heights(&self) -> (Vec<i32>, i32) {
+        let rev_x = self.sp.x.iter().copied().rev().collect();
+        let mut max_heights = self.min_widths.clone();
+        for i in 0..max_heights.len() {
+            max_heights[i] = self.blocks_area[i] / max_heights[i];
+        }
+        iterative_get_base_weights(&max_heights, &rev_x, &self.sp.y)
     }
 
-    pub fn visualize(&self, widths: &Vec<i32>, heights: &Vec<i32>) {
+    pub fn get_base_area(&self) -> i32 {
+        let (_, width) = self.get_base_widths();
+        let (_, height) = self.get_base_heights();
+        width * height
+    }
+
+    pub fn get_base_half_perimeter(&self) -> i32 {
+        let (_, width) = self.get_base_widths();
+        let (_, height) = self.get_base_heights();
+        width + height
+    }
+
+    pub fn get_random_sp_neighbour(&self) -> SequencePair {
+        let mut sp = self.sp.clone();
+        let n = self.n as usize;
+        let which_sequence = random::<i32>() % 2;
+        let which_first = random::<usize>() % n;
+        let mut which_second = random::<usize>() % n;
+        while which_second == which_first {
+            which_second = random::<usize>() % n;
+        }
+        let mut x_positions = vec![0; n];
+        let mut y_positions = vec![0; n];
+
+        for i in 0..n {
+            x_positions[self.sp.x[i] as usize] = i;
+            y_positions[self.sp.y[i] as usize] = i;
+        }
+        if which_sequence < 1 {
+            sp.x.swap(
+                x_positions[which_first],
+                x_positions[which_second]
+            );
+            assert_ne!(self.sp.x, sp.x);
+        }
+        if which_sequence > -1 {
+            sp.y.swap(
+                x_positions[which_first],
+                x_positions[which_second],
+            );
+            assert_ne!(self.sp.y, sp.y);
+        }
+        /*
+        println!("Which sequence {which_sequence}");
+        println!("Which first {which_first}, which second {which_second}");
+        println!("Which first x pos {}", x_positions[which_first]);
+        println!("Which second x pos {}", x_positions[which_second]);
+        println!("Which first y pos {}", y_positions[which_first]);
+        println!("Which second y pos {}", y_positions[which_second]);
+        */
+        sp
+
+    }
+
+    pub fn visualize(&self) {
+
+        let mut max_heights = self.min_widths.clone();
+        for i in 0..max_heights.len() {
+            max_heights[i] = self.blocks_area[i] / max_heights[i];
+        }
+
         println!("Getting widths");
-        let (width_offsets, width) = self.get_base_widths(widths);
+        let (width_offsets, width) = self.get_base_widths();
         println!("Getting heights");
-        let (height_offsets, height) = self.get_base_heights(heights);
+        let (height_offsets, height) = self.get_base_heights();
 
         println!("Filling visualization matrix");
         let mut vis_mat: Vec<Vec<i32>> = vec![vec![-1; width as usize]; height as usize];
-        let n = self.x.len();
-        for i in 0..n {
+        for i in 0..self.n as usize{
             let width_offset: usize = width_offsets[i] as usize;
             let height_offset: usize = height_offsets[i] as usize;
-            for h in 0..(heights[i] as usize) {
-                for w in 0..(widths[i] as usize) {
+            for h in 0..(max_heights[i] as usize) {
+                for w in 0..(self.min_widths[i] as usize) {
                     vis_mat[h+height_offset][w+width_offset] = i as i32
                 }
             }
@@ -271,15 +297,6 @@ impl SequencePair {
         }
         println!();
     }
-}
-
-pub struct FloorPlantProblem {
-    n: i32,
-    blocks_max_widths: Vec<i32>,
-    blocks_min_widths: Vec<i32>,
-    blocks_max_heights: Vec<i32>,
-    blocks_min_heights: Vec<i32>,
-    blocks_area: Vec<i32>,
 }
 
 #[cfg(test)]
@@ -310,7 +327,7 @@ mod tests {
             assert_eq!(y_exists, all_true);
         }
     }
-
+    /*
     #[test]
     fn simple_test_compute_lcs_table() {
         let n: usize = 4;
@@ -444,18 +461,22 @@ mod tests {
         let result_lcs: Vec<i32> = lcs(&mut lcs_table, &weights, &sp.x, &sp.y, 4, 9, 9);
         assert_eq!(expected_lcs, result_lcs);
     }
-
+    */
     #[test]
     fn test_widths_and_heights() {
-        let n: i32 = 6;
-        let sp: SequencePair = SequencePair {
-            x: vec![1, 3, 2, 4, 5, 0],
-            y: vec![3, 1, 0, 4, 5, 2]
+        let fpp: FloorPlantProblem = FloorPlantProblem {
+            n: 6,
+            sp: SequencePair {
+                x: vec![1, 3, 2, 4, 5, 0],
+                y: vec![3, 1, 0, 4, 5, 2]
+            },
+            min_widths: vec![3, 3, 4, 4, 2, 2],
+            min_heights: vec![6, 6, 3, 3, 6, 6],
+            blocks_area: vec![3*6, 3*6, 4*3, 4*3, 2*6, 2*6],
+            connected_to: vec![vec![false]]
         };
-        let heights = vec![6, 6, 3, 3, 6, 6];
-        let widths = vec![3, 3, 4, 4, 2, 2];
-        let (height_offsets, total_height) = sp.get_base_heights(&heights);
-        let (width_offsets, total_width) = sp.get_base_widths(&widths);
+        let (height_offsets, total_height) = fpp.get_base_heights();
+        let (width_offsets, total_width) = fpp.get_base_widths();
 
         let expected_height_offsets = vec![0, 3, 12, 0, 6, 6];
         let expected_total_height = 15;
@@ -471,15 +492,20 @@ mod tests {
 
     #[test]
     fn test_widths_and_heights_2() {
-        let n: i32 = 6;
-        let sp: SequencePair = SequencePair {
-            x: vec![1, 0, 2, 4, 5, 3],
-            y: vec![0, 1, 3, 4, 5, 2]
+        let fpp: FloorPlantProblem = FloorPlantProblem {
+            n: 6,
+            sp: SequencePair {
+                x: vec![1, 0, 2, 4, 5, 3],
+                y: vec![0, 1, 3, 4, 5, 2]
+            },
+            min_heights: vec![6, 6, 3, 3, 6, 6],
+            min_widths: vec![3, 3, 4, 4, 2, 2],
+            blocks_area: vec![3*6, 3*6, 4*3, 4*3, 2*6, 2*6],
+            connected_to: vec![vec![false]]
         };
-        let heights = vec![6, 6, 3, 3, 6, 6];
-        let widths = vec![3, 3, 4, 4, 2, 2];
-        let (height_offsets, total_height) = sp.get_base_heights(&heights);
-        let (width_offsets, total_width) = sp.get_base_widths(&widths);
+
+        let (height_offsets, total_height) = fpp.get_base_heights();
+        let (width_offsets, total_width) = fpp.get_base_widths();
 
         let expected_height_offsets = vec![0, 6, 9, 0, 3, 3];
         let expected_total_height = 12;
@@ -494,28 +520,15 @@ mod tests {
 
     #[test]
     fn test_recursive_and_iterative_compute_lcs_table() {
-        let n: usize = 4;
-        for iter in 0..100 {
+        let n: usize = 10;
+        for iter in 0..1000 {
             println!("Iter {}", iter);
             let sp = SequencePair::new_shuffled(n as i32);
             let mut weights = vec![0; n];
             for i in 0..n { weights[i] = random::<i32>().abs()%10 }
-            let mut rec_lcs_table = get_lcs_init_table(n);
-            let mut ite_lcs_table = get_lcs_init_table(n);
-            let rec_full_weight = compute_lcs_table(
-                &mut rec_lcs_table, &weights,
-                &sp.x, &sp.y,
-                (n-1) as i32, (n-1) as i32
-            );
-            let ite_full_weight = iterative_compute_lcs_table(
-                &mut ite_lcs_table, &weights,
-                &sp.x, &sp.y,
-                (n-1) as i32, (n-1) as i32
-            );
-            print_lcs_table(&rec_lcs_table);
-            print_lcs_table(&ite_lcs_table);
-            assert_eq!(rec_full_weight, ite_full_weight);
-            assert_eq!(rec_lcs_table, ite_lcs_table);
+            let rec_weight_offsets = get_base_weights(&weights, &sp.x, &sp.y);
+            let ite_weight_offsets = iterative_get_base_weights(&weights, &sp.x, &sp.y);
+            assert_eq!(rec_weight_offsets, ite_weight_offsets);
         }
     }
 }
