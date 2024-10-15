@@ -218,6 +218,45 @@ impl FloorPlantProblem {
         width + height
     }
 
+    pub fn get_wire_length_estimate_and_area(&self) -> (f32, f32) {
+        let (width_offsets, full_width) = self.get_base_widths();
+        let (height_offsets, full_height) = self.get_base_heights();
+        let mut max_heights = self.min_widths.clone();
+        for i in 0..max_heights.len() {
+            max_heights[i] = self.blocks_area[i] / max_heights[i];
+        }
+        let n = self.n as usize;
+        let mut centers = vec![(0.0, 0.0); n];
+        for i in 0..n {
+            centers[i] = (
+                (width_offsets[i] + self.min_widths[i] / 2) as f32,
+                (height_offsets[i] + max_heights[i]) as f32
+            );
+        }
+        let mut wire_length_estimate: f32 = 0.0;
+        let mut penalize_touching_sides: f32 = 0.0;
+        for i in 0..n {
+            if width_offsets[i] + self.min_widths[i] == full_width {
+                penalize_touching_sides += 0.5;
+            }
+            if height_offsets[i] + max_heights[i] == full_height {
+                penalize_touching_sides += 0.5;
+            }
+            for j in i + 1..n {
+                if self.connected_to[i][j] {
+                    wire_length_estimate +=
+                        (centers[i].0 - centers[j].0).abs() + (centers[i].1 - centers[j].1).abs();
+                    if wire_length_estimate == 0.0 {
+                        println!("centers for {i}: x-{} y-{}", centers[i].0, centers[i].1);
+                        println!("centers for {j}: x-{} y-{}", centers[j].0, centers[j].1);
+                        assert_ne!(wire_length_estimate, 0.0)
+                    }
+                }
+            }
+        }
+        (100.0*wire_length_estimate, (full_width * full_height) as f32 + penalize_touching_sides)
+    }
+
     pub fn get_random_sp_neighbour(&self) -> SequencePair {
         let mut sp = self.sp.clone();
         let n = self.n as usize;
@@ -243,11 +282,12 @@ impl FloorPlantProblem {
         }
         if which_sequence > -1 {
             sp.y.swap(
-                x_positions[which_first],
-                x_positions[which_second],
+                y_positions[which_first],
+                y_positions[which_second]
             );
             assert_ne!(self.sp.y, sp.y);
         }
+
         /*
         println!("Which sequence {which_sequence}");
         println!("Which first {which_first}, which second {which_second}");

@@ -1,35 +1,39 @@
 use rand::random;
-use crate::domain::{FloorPlantProblem, SequencePair};
+use crate::domain::{FloorPlantProblem};
 
 pub fn simulated_annealing(
     fpp: &mut FloorPlantProblem,
     temp: f32,
     temp_min: f32,
     alpha: f32
-) -> i32 {
+) -> f32 {
     assert!(alpha < 1.0 && alpha > 0.0);
-    let mut objective = fpp.get_base_half_perimeter();
+    let mut objective = fpp.get_wire_length_estimate_and_area();
+    println!("Initial solution: wire length: {}, area {}",
+             objective.0, objective.1);
     let mut best_sp = fpp.sp.clone();
     let mut temp = temp;
     while temp > temp_min {
         let previous_sp = fpp.sp.clone();
         fpp.sp = fpp.get_random_sp_neighbour();
-        let new_objective= fpp.get_base_half_perimeter();
-        let cost = new_objective - objective;
-        if cost < 0 {
+        let new_objective= fpp.get_wire_length_estimate_and_area();
+        let cost = new_objective.0 + new_objective.1 - objective.0 - objective.1;
+        if cost < 0.0 {
             best_sp = fpp.sp.clone();
             objective = new_objective;
-            println!("New best floor plan found! {objective}");
+            println!("New best floor plan found! wire length: {}, area {}",
+                     objective.0, objective.1);
             println!("Temp {temp}");
             fpp.visualize();
         }
-        else if random::<f32>() < (-cost as f32/temp).exp() {
+        else if random::<f32>() < (-cost/temp).exp() {
             fpp.sp = previous_sp;
         }
         temp = temp*alpha;
     }
     fpp.sp = best_sp;
-    println!("Simulated annealing solution: {} area", objective);
+    println!("Simulated annealing solution: wire length: {}, area {}",
+             objective.0, objective.1);
     fpp.visualize();
-    objective
+    objective.0 + objective.1
 }

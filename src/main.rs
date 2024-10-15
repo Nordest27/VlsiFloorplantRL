@@ -8,39 +8,62 @@ mod local_search;
 
 fn main() {
     let now = Instant::now();
-    for _ in 0..1 {
-        let n: i32 = 16;
-        let mut min_widths = vec![0; n as usize];
-        let mut min_heights = vec![0; n as usize];
-        let mut blocks_area = vec![0; n as usize];
-        for i in 0..n as usize {
-            min_widths[i] = random::<i32>().abs() % 1 + 1;
-            min_heights[i] = random::<i32>().abs() % 1 + 1;
-            blocks_area[i] = min_widths[i] * min_heights[i];
+    let n: i32 = 25;
+    let mut min_widths = vec![0; n as usize];
+    let mut min_heights = vec![0; n as usize];
+    let mut blocks_area = vec![0; n as usize];
+    let mut connected_to =  vec![vec![false; n as usize]; n as usize];
+    for i in 0..n as usize {
+        min_widths[i] = random::<i32>().abs() % 2 + 2;
+        min_heights[i] = random::<i32>().abs() % 2 + 2;
+        blocks_area[i] = min_widths[i] * min_heights[i];
+        for _ in 0..1+random::<usize>()%2 {
+            let mut j = random::<usize>() % n as usize;
+            while connected_to[i][j] && i != j {
+                j = random::<usize>() % n as usize;
+            }
+            connected_to[i][j] = true;
+            connected_to[j][i] = true;
         }
-        let mut fpp: FloorPlantProblem = FloorPlantProblem {
-            n,
-            sp: SequencePair::new_shuffled(n),
-            min_widths,
-            min_heights,
-            blocks_area,
-            connected_to: vec![vec![false]]
-        };
-        fpp.visualize();
-        simulated_annealing(
-            &mut fpp,
-            100.0,
-            10e-9,
-            0.9999
-
-        );
-        //fpp.sp = fpp.get_random_sp_neighbour();
-        //fpp.visualize();
-        //fpp.get_base_widths();
-        //fpp.get_base_heights();
     }
+    let mut fpp: FloorPlantProblem = FloorPlantProblem {
+        n,
+        sp: SequencePair::new_shuffled(n),
+        min_widths,
+        min_heights,
+        blocks_area,
+        connected_to: connected_to.clone()
+    };
+    simulated_annealing(
+        &mut fpp,
+        10.0,
+        10e-9,
+        0.999999
+
+    );
+    //fpp.sp = fpp.get_random_sp_neighbour();
+    //fpp.visualize();
+    //fpp.get_base_widths();
+    //fpp.get_base_heights();
     let elapsed_time = now.elapsed();
     println!("Elapsed time in us: {}", elapsed_time.as_micros());
     println!("Elapsed time: {}s {}ms {}us",
              elapsed_time.as_secs(), elapsed_time.as_millis()%1000, elapsed_time.as_micros()%1000);
+
+    for i in 0..n as usize {print!("{: >2}|", i)}
+    println!();
+    for i in 0..n as usize {
+        for j in 0..n as usize {
+            if j <= i {
+                print!("\\\\\\");
+                continue;
+            }
+            match connected_to[i][j]  {
+                true => print!("|| "),
+                false => print!("O0 ")
+            }
+        }
+        println!();
+    }
+    println!();
 }
