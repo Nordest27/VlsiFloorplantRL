@@ -14,8 +14,8 @@ fn main() {
     let mut blocks_area = vec![0; n as usize];
     let mut connected_to =  vec![vec![false; n as usize]; n as usize];
     for i in 0..n as usize {
-        min_widths[i] = random::<i32>().abs() % 2 + 2;
-        min_heights[i] = random::<i32>().abs() % 2 + 2;
+        min_widths[i] = random::<i32>().abs() % 1 + 1;
+        min_heights[i] = random::<i32>().abs() % 1 + 1;
         blocks_area[i] = min_widths[i] * min_heights[i];
         for _ in 0..1+random::<usize>()%2 {
             let mut j = random::<usize>() % n as usize;
@@ -28,7 +28,7 @@ fn main() {
     }
     let mut fpp: FloorPlantProblem = FloorPlantProblem {
         n,
-        sp: SequencePair::new_shuffled(n),
+        best_sp: SequencePair::new_shuffled(n),
         min_widths,
         min_heights,
         blocks_area,
@@ -36,9 +36,9 @@ fn main() {
     };
     simulated_annealing(
         &mut fpp,
-        10.0,
-        10e-9,
-        0.999999
+        1e2,
+        1e-5,
+        1.0-1e-7
 
     );
     //fpp.sp = fpp.get_random_sp_neighbour();
