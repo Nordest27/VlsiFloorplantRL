@@ -1,5 +1,7 @@
 use std::cmp::PartialEq;
-use rand::{random, thread_rng};
+use rand::{random};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 fn iterative_compute_lcs_table(
     weights: &Vec<i32>,
@@ -183,7 +185,7 @@ impl SequencePair {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq, EnumIter)]
 enum SpMove {
     SwapX,
     SwapY,
@@ -266,6 +268,7 @@ impl SpMove {
             }
             assert_ne!(sp.y, new_sp.y);
         }
+        assert!(new_sp.x != sp.x || new_sp.y != sp.y);
         new_sp
     }
 
@@ -343,7 +346,8 @@ impl FloorPlantProblem {
                 }
             }
         }
-        (wire_length_estimate, (full_width * full_height) as f32 + penalize_touching_sides)
+        let area = (full_width * full_height) as f32 + penalize_touching_sides;
+        (wire_length_estimate, area)
     }
 
     pub fn get_random_sp_neighbour_with_obj(
@@ -377,9 +381,41 @@ impl FloorPlantProblem {
             y_positions[which_first],
             y_positions[which_second]
         );
+        let obj = self.get_wire_length_estimate_and_area(&new_sp);
+        (new_sp, obj)
+    }
 
-        (new_sp, self.get_wire_length_estimate_and_area(sp))
+    pub fn get_all_sp_neighbours_with_obj(
+        &self, sp: &SequencePair
+    ) -> Vec<(SequencePair, (f32, f32))> {
+        let n = self.n as usize;
+        let mut x_positions = vec![0; n];
+        let mut y_positions = vec![0; n];
 
+        for i in 0..n {
+            x_positions[sp.x[i] as usize] = i;
+            y_positions[sp.y[i] as usize] = i;
+        }
+
+        let mut result = vec![];
+        for m in SpMove::iter() {
+            for i in 0..n {
+                for j in 0..n {
+                    if j == i {continue}
+                    let new_sp = m.clone().execute_move(
+                        sp,
+                        x_positions[i],
+                        x_positions[j],
+                        y_positions[i],
+                        y_positions[j]
+                    );
+                    let obj = self.get_wire_length_estimate_and_area(&new_sp);
+                    result.push((new_sp, obj));
+                }
+            }
+        }
+
+        result
     }
 
     pub fn visualize(&self, sp: &SequencePair) {
