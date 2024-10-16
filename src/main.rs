@@ -8,20 +8,20 @@ mod local_search;
 
 fn main() {
     let now = Instant::now();
-    let n: i32 = 10;
+    let n: i32 = 25;
     let mut min_widths = vec![0; n as usize];
     let mut min_heights = vec![0; n as usize];
     let mut blocks_area = vec![0; n as usize];
     let mut connected_to =  vec![vec![false; n as usize]; n as usize];
     for i in 0..n as usize {
-        min_widths[i] = random::<i32>().abs() % 3 + 1;
-        min_heights[i] = random::<i32>().abs() % 3 + 1;
+        min_widths[i] = random::<i32>().abs() % (1+(i+1).ilog2() as i32) + 1;
+        min_heights[i] = random::<i32>().abs() % (1+(i+1).ilog2() as i32) + 1;
         blocks_area[i] = min_widths[i] * min_heights[i];
-        for _ in 0..1+random::<usize>()%1 {
+        for _ in 0..1+random::<usize>()%(1+(1+i).ilog2() as usize) {
             let mut j = random::<usize>() % n as usize;
-            while connected_to[i][j] && i != j {
+            /*while connected_to[i][j] && i != j {
                 j = random::<usize>() % n as usize;
-            }
+            }*/
             connected_to[i][j] = true;
             connected_to[j][i] = true;
         }
@@ -34,17 +34,18 @@ fn main() {
         blocks_area,
         connected_to: connected_to.clone()
     };
-    /*
+
     simulated_annealing(
         &mut fpp,
         100.0,
         0.1,
         1.0-1e-7,
         0.9
-    );*/
+    );
+
     hill_climbing(
         &mut fpp,
-        0.8
+        0.5
     );
     //fpp.sp = fpp.get_random_sp_neighbour();
     //fpp.visualize();
