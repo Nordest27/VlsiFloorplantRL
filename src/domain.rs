@@ -186,7 +186,7 @@ impl SequencePair {
 }
 
 #[derive(Clone, PartialEq, EnumIter)]
-enum SpMove {
+pub enum SpMove {
     SwapX,
     SwapY,
     SwapXY,
@@ -200,8 +200,8 @@ enum SpMove {
 
 
 impl SpMove {
-    fn random() -> Self {
-        match random::<usize>()%9 {
+    pub fn new(i: usize) -> Self {
+        match i {
             0 => SpMove::SwapX,
             1 => SpMove::SwapY,
             2 => SpMove::SwapXY,
@@ -212,6 +212,10 @@ impl SpMove {
             7 => SpMove::MoveLeftY,
             _ => SpMove::MoveLeftXY,
         }
+    }
+
+    pub fn random() -> Self {
+        SpMove::new(random::<usize>()%9)
     }
 
     pub fn execute_move(
@@ -285,17 +289,50 @@ pub struct FloorPlantProblem {
 }
 
 impl FloorPlantProblem {
+
+    pub fn generate_new(n: usize) -> Self {
+        let mut min_widths = vec![0; n];
+        let mut min_heights = vec![0; n];
+        let mut blocks_area = vec![0; n];
+        let mut connected_to =  vec![vec![false; n]; n];
+        for i in 0..n{
+            min_widths[i] = random::<i32>().abs() % (1+(i+1).ilog2() as i32) + 1;
+            min_heights[i] = random::<i32>().abs() % (1+(i+1).ilog2() as i32) + 1;
+            blocks_area[i] = min_widths[i] * min_heights[i];
+            for _ in 0..1+random::<usize>()%(1+(1+i).ilog2() as usize) {
+                let mut j = random::<usize>() % n;
+                /*while connected_to[i][j] && i != j {
+                    j = random::<usize>() % n as usize;
+                }*/
+                connected_to[i][j] = true;
+                connected_to[j][i] = true;
+            }
+        }
+        FloorPlantProblem {
+            n: n as i32,
+            best_sp: SequencePair::new_shuffled(n as i32),
+            min_widths,
+            min_heights,
+            blocks_area,
+            connected_to
+        }
+    }
+
+    pub fn get_max_heights(&self) -> Vec<i32> {
+        let mut max_heights = self.min_widths.clone();
+        for i in 0..max_heights.len() {
+            max_heights[i] = self.blocks_area[i] / max_heights[i];
+        }
+        max_heights
+    }
+
     pub fn get_base_widths(&self, sp: &SequencePair) -> (Vec<i32>, i32) {
         iterative_get_base_weights(&self.min_widths, &sp.x, &sp.y)
     }
 
     pub fn get_base_heights(&self, sp: &SequencePair) -> (Vec<i32>, i32) {
         let rev_x = sp.x.iter().copied().rev().collect();
-        let mut max_heights = self.min_widths.clone();
-        for i in 0..max_heights.len() {
-            max_heights[i] = self.blocks_area[i] / max_heights[i];
-        }
-        iterative_get_base_weights(&max_heights, &rev_x, &sp.y)
+        iterative_get_base_weights(&self.get_max_heights(), &rev_x, &sp.y)
     }
 
     pub fn get_base_area(&self, sp: &SequencePair) -> i32 {
@@ -313,10 +350,7 @@ impl FloorPlantProblem {
     pub fn get_wire_length_estimate_and_area(&self, sp: &SequencePair) -> (f32, f32) {
         let (width_offsets, full_width) = self.get_base_widths(sp);
         let (height_offsets, full_height) = self.get_base_heights(sp);
-        let mut max_heights = self.min_widths.clone();
-        for i in 0..max_heights.len() {
-            max_heights[i] = self.blocks_area[i] / max_heights[i];
-        }
+        let max_heights = self.get_max_heights();
         let n = self.n as usize;
         let mut centers = vec![(0.0, 0.0); n];
         for i in 0..n {
@@ -420,17 +454,10 @@ impl FloorPlantProblem {
 
     pub fn visualize(&self, sp: &SequencePair) {
 
-        let mut max_heights = self.min_widths.clone();
-        for i in 0..max_heights.len() {
-            max_heights[i] = self.blocks_area[i] / max_heights[i];
-        }
-
-        println!("Getting widths");
+        let mut max_heights = self.get_max_heights();
         let (width_offsets, width) = self.get_base_widths(sp);
-        println!("Getting heights");
         let (height_offsets, height) = self.get_base_heights(sp);
 
-        println!("Filling visualization matrix");
         let mut vis_mat: Vec<Vec<i32>> = vec![vec![-1; width as usize]; height as usize];
         for i in 0..self.n as usize{
             let width_offset: usize = width_offsets[i] as usize;
@@ -441,7 +468,6 @@ impl FloorPlantProblem {
                 }
             }
         }
-        println!("Showing matrix");
         for i in 0..(height as usize) {
             for j in 0..(width as usize) {
                 match vis_mat[i][j] {

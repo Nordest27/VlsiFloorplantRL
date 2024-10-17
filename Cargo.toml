@@ -9,3 +9,9 @@ edition = "2021"
 rand = "0.8.5"
 strum_macros = "0.26.4"
 strum = "0.26.3"
+pyo3 = "0.22.5"
+
+[lib]
+name = "vlsi_floorplant"
+crate-type = ["cdylib"]
+

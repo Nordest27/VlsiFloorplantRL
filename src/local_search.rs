@@ -1,4 +1,3 @@
-use std::f32::EPSILON;
 use rand::random;
 use crate::domain::{FloorPlantProblem, SequencePair};
 
