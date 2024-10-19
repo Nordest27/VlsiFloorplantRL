@@ -24,7 +24,7 @@ class FloorPlantEnv(gym.Env):
     fpp: PyFloorPlantProblem
     n: int
     initial_obj: int
-    obj: int = -np.inf
+    obj: int = -1000
 
     def __init__(self, n: int):
         self.n = n
@@ -99,14 +99,15 @@ class FloorPlantEnv(gym.Env):
 
     def step(self, action: tuple[int, int, int]):
         assert self.action_space.contains(action)
-        print("Taking action: ", action)
+        #print("Taking action: ", action)
         i, j, move = action
 
-        if i >= self.n or j >= self.n or i == j:
-            return self.observation, -np.inf, True, {}
         if move == 9:
-            print(f"Initial obj: {self.initial_obj}, obj: {self.obj}")
-            return self.observation, 1000*(self.obj - self.initial_obj)/abs(self.initial_obj), True, {}
+            #print(f"Initial obj: {self.initial_obj}, obj: {self.obj}")
+            return self.observation, int(100*(self.obj - self.initial_obj)/abs(self.initial_obj)), True, {}
+
+        if i >= self.n or j >= self.n or i == j:
+            return self.observation, 0, False, {}
 
         self.obj = -self.fpp.apply_sp_move(i, j, move)
         self.observation = tuple([
@@ -122,7 +123,7 @@ class FloorPlantEnv(gym.Env):
         return self.observation, 0, False, {}
 
     def render(self):
-            self.fpp.visualize()
+        self.fpp.visualize()
 
 if __name__ == "__main__":
     fpe = FloorPlantEnv(10)

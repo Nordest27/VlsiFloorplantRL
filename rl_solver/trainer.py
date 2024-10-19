@@ -6,49 +6,51 @@ import numpy as np
 
 
 # Create the CartPole Environment
-env = FloorPlantEnv(10)
+env = FloorPlantEnv(2)
 
 # Define the actor and critic networks
 input_layer = keras.layers.Input((env.n + env.n + env.n*4 + env.n*env.n,))
-#hidden_layer = keras.layers.Dense(1000)(input_layer)
-#hidden_layer = keras.layers.Dense(100)(keras.layers.LeakyReLU(negative_slope=0.05)(hidden_layer))
-#hidden_layer_with_activation = keras.layers.LeakyReLU(negative_slope=0.05)(hidden_layer)
+hidden_layer = keras.layers.Dense(1000)(input_layer)
+hidden_layer = keras.layers.Dense(100)(keras.layers.LeakyReLU(negative_slope=0.05)(hidden_layer))
+hidden_layer_with_activation = keras.layers.LeakyReLU(negative_slope=0.05)(hidden_layer)
 output_layer = keras.layers.concatenate([
-    keras.layers.Dense(10, activation='softmax')(input_layer),
-    keras.layers.Dense(10, activation='softmax')(input_layer),
-    keras.layers.Dense(10, activation='softmax')(input_layer),
+    keras.layers.Dense(env.n, activation='softmax')(hidden_layer_with_activation),
+    keras.layers.Dense(env.n, activation='softmax')(hidden_layer_with_activation),
+    keras.layers.Dense(10, activation='softmax')(hidden_layer_with_activation),
 ])
 actor = keras.Model(input_layer, output_layer)
 
 critic = keras.Sequential([
     keras.layers.Input((env.n + env.n + env.n*4 + env.n*env.n,)),
-    #keras.layers.Dense(1000),
-    #keras.layers.LeakyReLU(negative_slope=0.05),
-    #keras.layers.Dense(100),
-    #keras.layers.LeakyReLU(negative_slope=0.05),
+    keras.layers.Dense(1000),
+    keras.layers.LeakyReLU(negative_slope=0.05),
+    keras.layers.Dense(100),
+    keras.layers.LeakyReLU(negative_slope=0.05),
     keras.layers.Dense(1, activation='sigmoid')
 ])
 
 # Define optimizer and loss functions
-actor_optimizer = keras.optimizers.Adam(learning_rate=0.000001)
-critic_optimizer = keras.optimizers.Adam(learning_rate=0.000001)
+actor_optimizer = keras.optimizers.Adam(learning_rate=0.00001)
+critic_optimizer = keras.optimizers.Adam(learning_rate=0.00001)
 
 # Main training loop
-num_episodes = 1000
+num_episodes = 100000
 gamma = 1
+last_results = []
 
-env.reset()
 
 for episode in range(num_episodes):
-    print("New Env state")
-    for v in env.observation:
-        print(v)
+    env.reset()
+    # print("/////////////////////////////////////////////////////")
+    # print("New Env state")
+    # for v in env.observation:
+        #print(v)
     state = env.flattened_observation()
-    env.fpp.visualize()
+    # env.fpp.visualize()
     episode_reward = 0
 
     with GradientTape(persistent=True) as tape:
-        for t in range(1, 10000):  # Limit the number of time steps
+        for t in range(1, 1000):  # Limit the number of time steps
             """
             action = (
                 np.random.randint(0, env.n),
@@ -68,11 +70,9 @@ for episode in range(num_episodes):
 
             # Choose an action using the actor
             action_probs = actor(np.array([env.flattened_observation()]))
-            print(action_probs)
             first_choice = np.random.choice(env.n, p=action_probs.numpy()[0][:env.n])
             second_choice = np.random.choice(env.n, p=action_probs.numpy()[0][env.n:2*env.n])
             move = np.random.choice(10, p=action_probs.numpy()[0][env.n*2:])
-            print(first_choice, second_choice, move)
             # Take the chosen action and observe the next state and reward
             _, reward, done, _= env.step((first_choice, second_choice, move))
             next_state = env.flattened_observation()
@@ -85,24 +85,28 @@ for episode in range(num_episodes):
             # Compute actor and critic losses
             actor_loss = (
                 -math.log(action_probs[0, first_choice])
-                -math.log(action_probs[0, second_choice])
-                -math.log(action_probs[0, move])
+                -math.log(action_probs[0, first_choice + second_choice])
+                -math.log(action_probs[0, first_choice + second_choice + move])
             ) * advantage
             critic_loss = square(advantage)
 
-            episode_reward += reward
-
-            # Update actor and critic
             actor_gradients = tape.gradient(actor_loss, actor.trainable_variables)
             critic_gradients = tape.gradient(critic_loss, critic.trainable_variables)
             actor_optimizer.apply_gradients(zip(actor_gradients, actor.trainable_variables))
             critic_optimizer.apply_gradients(zip(critic_gradients, critic.trainable_variables))
+            episode_reward += reward
 
-            env.render()
+            # Update actor and critic
             if done:
+                last_results += [episode_reward]
+                last_results = last_results[-100:]
+                print(f"Episode {episode} finished, last 100 results avg: {int(np.mean(last_results))} % ")
+                # env.render()
                 break
 
     if episode % 10 == 0:
-        print(f"Episode {episode}, Reward: {episode_reward}")
+        pass
+        #print(f"Episode {episode}, Reward: {episode_reward}")
+        #env.render()
 
 env.close()
