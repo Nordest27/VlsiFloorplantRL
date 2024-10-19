@@ -7,17 +7,7 @@ mod local_search;
 
 #[pyclass]
 pub struct PyFloorPlantProblem {
-    fpp: FloorPlantProblem,
-    #[pyo3(get)]
-    pub x: Vec<i32>,
-    #[pyo3(get)]
-    pub y: Vec<i32>,
-    #[pyo3(get)]
-    pub widths: Vec<i32>,
-    #[pyo3(get)]
-    pub heights: Vec<i32>,
-    #[pyo3(get)]
-    pub connected_to: Vec<Vec<bool>>
+    fpp: FloorPlantProblem
 }
 
 #[pymethods]
@@ -25,18 +15,24 @@ impl PyFloorPlantProblem {
     #[new]
     pub fn new(n: usize) -> PyFloorPlantProblem {
         let fpp = FloorPlantProblem::generate_new(n);
-        let x = fpp.best_sp.x.clone();
-        let y = fpp.best_sp.y.clone();
-        let widths: Vec<i32> = fpp.min_widths.clone();
-        let heights: Vec<i32> = fpp.get_max_heights();
-        let connected_to: Vec<Vec<bool>> = fpp.connected_to.clone();
-
-        PyFloorPlantProblem { fpp, x, y, widths, heights, connected_to }
+        PyFloorPlantProblem { fpp }
     }
 
     pub fn get_current_sp_objective(&self) -> PyResult<f32> {
         let aux_obj = self.fpp.get_wire_length_estimate_and_area(&self.fpp.best_sp);
         Ok(aux_obj.0 + aux_obj.1)
+    }
+
+    fn x(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.best_sp.x.clone()) }
+    fn y(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.best_sp.y.clone()) }
+    fn widths(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.min_widths.clone()) }
+    fn heights(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.get_max_heights()) }
+    fn connected_to(&self) -> PyResult<Vec<Vec<bool>>> { Ok(self.fpp.connected_to.clone()) }
+    fn offset_heights(&self) -> PyResult<Vec<i32>> {
+        Ok(self.fpp.get_base_heights(&self.fpp.best_sp).0)
+    }
+    fn offset_widths(&self) -> PyResult<Vec<i32>> {
+        Ok(self.fpp.get_base_widths(&self.fpp.best_sp).0)
     }
 
     pub fn apply_sp_move(
