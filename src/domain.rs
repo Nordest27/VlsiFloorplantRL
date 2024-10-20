@@ -171,7 +171,7 @@ impl SequencePair {
         SequencePair {x, y}
     }
 
-    fn shuffle(&mut self) {
+    pub fn shuffle(&mut self) {
         for i in (1..self.x.len()).rev() {
             self.x.swap(i, (random::<i32>()%(i as i32)).abs() as usize);
             self.y.swap(i, (random::<i32>()%(i as i32)).abs() as usize);

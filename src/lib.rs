@@ -23,17 +23,19 @@ impl PyFloorPlantProblem {
         Ok(aux_obj.0 + aux_obj.1)
     }
 
-    fn x(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.best_sp.x.clone()) }
-    fn y(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.best_sp.y.clone()) }
-    fn widths(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.min_widths.clone()) }
-    fn heights(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.get_max_heights()) }
-    fn connected_to(&self) -> PyResult<Vec<Vec<bool>>> { Ok(self.fpp.connected_to.clone()) }
-    fn offset_heights(&self) -> PyResult<Vec<i32>> {
+    pub fn x(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.best_sp.x.clone()) }
+    pub fn y(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.best_sp.y.clone()) }
+    pub fn widths(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.min_widths.clone()) }
+    pub fn heights(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.get_max_heights()) }
+    pub fn connected_to(&self) -> PyResult<Vec<Vec<bool>>> { Ok(self.fpp.connected_to.clone()) }
+    pub fn offset_heights(&self) -> PyResult<Vec<i32>> {
         Ok(self.fpp.get_base_heights(&self.fpp.best_sp).0)
     }
-    fn offset_widths(&self) -> PyResult<Vec<i32>> {
+    pub fn offset_widths(&self) -> PyResult<Vec<i32>> {
         Ok(self.fpp.get_base_widths(&self.fpp.best_sp).0)
     }
+
+    pub fn shuffle_sp(&mut self) { self.fpp.best_sp.shuffle() }
 
     pub fn apply_sp_move(
         &mut self,
