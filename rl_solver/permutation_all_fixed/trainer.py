@@ -9,13 +9,16 @@ import numpy as np
 
 
 # Create the CartPole Environment
-env = FloorPlantEnv(5)
+env = FloorPlantEnv(25)
 
 # Define the actor and critic networks
-input_layer = keras.layers.Input((env.n*env.n + env.n*env.n + env.n*4 + env.n*env.n,))
-hidden_layer = keras.layers.LeakyReLU(negative_slope=0.25)(keras.layers.Dense(2048)(input_layer))
-hidden_layer = keras.layers.LeakyReLU(negative_slope=0.25)(keras.layers.Dense(2048)(hidden_layer))
-hidden_layer = keras.layers.LeakyReLU(negative_slope=0.25)(keras.layers.Dense(2048)(hidden_layer))
+input_layer = keras.layers.Input((env.n + env.n,))
+
+hidden_layer = keras.layers.Embedding(env.n, 4)(input_layer)
+hidden_layer = keras.layers.Flatten()(hidden_layer)
+hidden_layer = keras.layers.Dense(1024, activation="tanh")(hidden_layer)
+#hidden_layer = keras.layers.LeakyReLU(negative_slope=0.25)(keras.layers.Dense(1024)(hidden_layer))
+hidden_layer = keras.layers.LeakyReLU(negative_slope=0.25)(keras.layers.Dense(1024)(hidden_layer))
 
 wfa = keras.layers.Dense(env.n, activation='softmax')(hidden_layer)
 wsa = keras.layers.Dense(env.n, activation='softmax')(hidden_layer)
@@ -42,7 +45,7 @@ huber_loss = keras.losses.Huber()
 
 # Main training loop
 num_episodes = 1000000
-gamma = 0.99
+gamma = 1
 eps = np.finfo(np.float32).eps.item()
 action_probs_history = []
 critic_value_history = []
@@ -66,7 +69,7 @@ for episode in range(num_episodes):
     with GradientTape() as tape:
         if episode_count % 100 == 0:
             env.fpp.visualize()
-        for t in range(1, 2+int(np.log(1+episode))):  # Limit the number of time steps
+        for t in range(1, 100):# 2+int(np.log(1+episode))):  # Limit the number of time steps
 
             # Predict action probabilities and estimated future rewards
             # from environment state
@@ -94,7 +97,10 @@ for episode in range(num_episodes):
             episode_reward += reward
 
             if episode_count % 100 == 0:
+                print(rewards_history)
+                print(f"action taken (fc: {first_choice}, sc: {second_choice}, m: {move})")
                 env.fpp.visualize()
+
             if done:
                 break
 
@@ -103,7 +109,7 @@ for episode in range(num_episodes):
 
         # Calculate expected value from rewards
         # - At each timestep what was the total reward received after that timestep
-        # - Rewards in the past (future?) are discounted by multiplying them with gamma
+        # - Rewards in the past are discounted by multiplying them with gamma
         # - These are the labels for our critic
         returns = []
         discounted_sum = 0
@@ -112,9 +118,9 @@ for episode in range(num_episodes):
             returns.insert(0, discounted_sum)
 
         # Normalize
-        returns = np.array(returns)
-        returns = (returns - np.mean(returns)) / (np.std(returns) + eps)
-        returns = returns.tolist()
+        # returns = np.array(returns)
+        # returns = (returns - np.mean(returns)) / (np.std(returns) + eps)
+        # returns = returns.tolist()
 
         # Calculating loss values to update our network
         history = zip(action_probs_history, critic_value_history, returns)
@@ -157,8 +163,18 @@ for episode in range(num_episodes):
     # Log details
     episode_count += 1
     if episode_count % 1 == 0:
-        template = "running reward: {:.2f}, episode reward: {:.2f} and number of moves {}  at episode {}"
-        print(template.format(running_reward, episode_reward, len(critic_losses), episode_count))
+        template = ("running reward: {:.2f}, "
+                    "critic error: {:.2f}, "
+                    "actors error: {:.2f}, "
+                    "episode reward: {:.2f} "
+                    "and number of moves {}  at episode {}")
+        print(template.format(
+            running_reward,
+            np.mean(critic_losses),
+            np.mean([sum(actor_losses[0]), sum(actor_losses[1]), sum(actor_losses[2])]),
+            episode_reward,
+            len(critic_losses),
+            episode_count))
 
 
 env.close()

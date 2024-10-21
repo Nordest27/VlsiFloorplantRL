@@ -279,6 +279,7 @@ impl SpMove {
 
 }
 
+#[derive(Clone)]
 pub struct FloorPlantProblem {
     pub n: i32,
     pub best_sp: SequencePair,

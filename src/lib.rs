@@ -18,9 +18,13 @@ impl PyFloorPlantProblem {
         PyFloorPlantProblem { fpp }
     }
 
+    pub fn copy(&self) -> PyFloorPlantProblem {
+        PyFloorPlantProblem { fpp: self.fpp.clone() }
+    }
+
     pub fn get_current_sp_objective(&self) -> PyResult<f32> {
         let aux_obj = self.fpp.get_wire_length_estimate_and_area(&self.fpp.best_sp);
-        Ok(aux_obj.0 + aux_obj.1)
+        Ok(aux_obj.0 + 0.0*aux_obj.1)
     }
 
     pub fn x(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.best_sp.x.clone()) }
@@ -62,7 +66,7 @@ impl PyFloorPlantProblem {
                 y_positions[j]
             );
             let aux_obj = self.fpp.get_wire_length_estimate_and_area(&self.fpp.best_sp);
-            obj = aux_obj.0 + aux_obj.1;
+            obj = aux_obj.0 + 0.0*aux_obj.1;
         }
         Ok(obj)
     }
