@@ -24,6 +24,12 @@ def join_digits(i: tuple[int]) -> int:
 def to_one_hot_encoding(t: tuple[int]) -> list[list[int]]:
     return [[int(v==i) for i in range(len(t))] for v in  t]
 
+def to_positions(l: list[int]) -> list[int]:
+    positions = copy(l)
+    for i, v in enumerate(l):
+        positions[v] = i
+    return positions
+
 class FloorPlantEnv(gym.Env):
 
     fpp: PyFloorPlantProblem = None
@@ -83,8 +89,8 @@ class FloorPlantEnv(gym.Env):
         self.steps = 0
 
         self.observation = tuple([
-            tuple(self.fpp.x()),
-            tuple(self.fpp.y()),
+            tuple(to_positions(self.fpp.x())),
+            tuple(to_positions(self.fpp.y())),
         ])
 
         assert self.observation_space.contains(self.observation)
@@ -108,8 +114,8 @@ class FloorPlantEnv(gym.Env):
         self.obj = -self.fpp.apply_sp_move(i, j, move)
 
         self.observation = tuple([
-            tuple(self.fpp.x()),
-            tuple(self.fpp.y()),
+            tuple(to_positions(self.fpp.x())),
+            tuple(to_positions(self.fpp.y())),
         ])
         assert self.observation_space.contains(self.observation)
 

@@ -16,7 +16,7 @@ import numpy as np
 
 
 # Create the CartPole Environment
-env = FloorPlantEnv(25)
+env = FloorPlantEnv(100)
 
 # Define the actor and critic networks
 input_layer = keras.layers.Input((env.n + env.n,))
