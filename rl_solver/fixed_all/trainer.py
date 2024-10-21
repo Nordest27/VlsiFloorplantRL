@@ -16,40 +16,30 @@ import numpy as np
 
 
 # Create the CartPole Environment
-env = FloorPlantEnv(100)
+env = FloorPlantEnv(10)
+n_moves = 9
 
 # Define the actor and critic networks
 input_layer = keras.layers.Input((env.n + env.n,))
 
 hidden_layer = keras.layers.Embedding(env.n, 8)(input_layer)
 hidden_layer = keras.layers.Flatten()(hidden_layer)
-#hidden_layer = keras.layers.Dense(2024, activation="tanh")(hidden_layer)
-hidden_layer = keras.layers.LeakyReLU(negative_slope=0.05)(keras.layers.Dense(2024)(hidden_layer))
-hidden_layer = keras.layers.LeakyReLU(negative_slope=0.05)(keras.layers.Dense(2024)(hidden_layer))
-hidden_layer = keras.layers.LeakyReLU(negative_slope=0.05)(keras.layers.Dense(2024)(hidden_layer))
+hidden_layer = keras.layers.Dense(2024, activation="tanh")(hidden_layer)
+#hidden_layer = keras.layers.LeakyReLU(negative_slope=0.05)(keras.layers.Dense(2024)(hidden_layer))
+#hidden_layer = keras.layers.LeakyReLU(negative_slope=0.05)(keras.layers.Dense(2024)(hidden_layer))
+#hidden_layer = keras.layers.LeakyReLU(negative_slope=0.05)(keras.layers.Dense(2024)(hidden_layer))
 
-wfa = keras.layers.Dense(env.n, activation='softmax')(hidden_layer)
-wsa = keras.layers.Dense(env.n, activation='softmax')(hidden_layer)
-wma = keras.layers.Dense(10, activation='softmax')(hidden_layer)
+# wfa = keras.layers.Dense(env.n, activation='softmax')(hidden_layer)
+# wsa = keras.layers.Dense(env.n, activation='softmax')(hidden_layer)
+# wma = keras.layers.Dense(10, activation='softmax')(hidden_layer)
 
+actor = keras.layers.Dense(env.n*env.n*n_moves, activation='softmax')(hidden_layer)
 critic = keras.layers.Dense(1)(hidden_layer)
 
-model = keras.Model(inputs=input_layer, outputs=[wfa, wsa, wma, critic])
-"""
-num_hidden = 128
+model = keras.Model(inputs=input_layer, outputs=[actor, critic])
 
-inputs = keras.layers.Input((env.n + env.n + env.n*4 + env.n*env.n,))
-common = keras.layers.Dense(num_hidden, activation="tanh")(inputs)
-wfa = keras.layers.Dense(env.n, activation="softmax")(common)
-wsa = keras.layers.Dense(env.n, activation="softmax")(common)
-wma = keras.layers.Dense(10, activation="softmax")(common)
-critic = keras.layers.Dense(1)(common)
-
-model = keras.Model(inputs=inputs, outputs=[wfa, wsa, wma, critic])
-"""
 # Define optimizer and loss functions
-optimizer = keras.optimizers.Adam(learning_rate=1e-5)
-huber_loss = keras.losses.Huber()
+optimizer = keras.optimizers.Adam(learning_rate=3e-4)
 
 # Main training loop
 num_episodes = 1000000
@@ -81,7 +71,7 @@ for episode in range(num_episodes):
 
             # Predict action probabilities and estimated future rewards
             # from environment state
-            wfp, wsp, wmp, critic_value = model(
+            action_probs, critic_value = model(
                 keras.ops.expand_dims(
                     keras.ops.convert_to_tensor(env.flattened_observation()), 0
                 )
@@ -89,15 +79,12 @@ for episode in range(num_episodes):
             critic_value_history.append(critic_value[0, 0])
 
             # Sample action from action probability distributions
-            first_choice = np.random.choice(env.n, p=wfp.numpy()[0])
-            second_choice = np.random.choice(env.n, p=wsp.numpy()[0])
-            move = np.random.choice(10, p=wmp.numpy()[0])
-            action_probs_history.append((
-                keras.ops.log(wfp[0, first_choice]),
-                keras.ops.log(wsp[0, second_choice]),
-                keras.ops.log(wmp[0, move])
-            ))
-
+            action = np.random.choice(env.n*env.n*n_moves
+                                      , p=action_probs.numpy()[0])
+            action_probs_history.append(
+                keras.ops.log(action_probs[0, action]),
+            )
+            first_choice, second_choice, move = int(action/(env.n*n_moves)), int((action/n_moves)%env.n), action%n_moves
             # Apply the sampled action in our environment
             _, reward, done, _= env.step((first_choice, second_choice, move))
             state = env.flattened_observation()
@@ -126,15 +113,15 @@ for episode in range(num_episodes):
             returns.insert(0, discounted_sum)
 
         # Normalize
-        # returns = np.array(returns)
-        # returns = (returns - np.mean(returns)) / (np.std(returns) + eps)
-        # returns = returns.tolist()
+        returns = np.array(returns)
+        returns = (returns - np.mean(returns))
+        returns = returns.tolist()
 
         # Calculating loss values to update our network
         history = zip(action_probs_history, critic_value_history, returns)
-        actor_losses = ([], [], [])
+        actor_losses = []
         critic_losses = []
-        for (log_prob_wf, log_prob_ws, log_prob_wm), value, ret in history:
+        for log_prob, value, ret in history:
             # At this point in history, the critic estimated that we would get a
             # total reward = `value` in the future. We took an action with log probability
             # of `log_prob` and ended up receiving a total reward = `ret`.
@@ -142,21 +129,20 @@ for episode in range(num_episodes):
             # high rewards (compared to critic's estimate) with high probability.
             diff = ret - value
 
-            actor_losses[0].append(-log_prob_wf * diff)
-            actor_losses[1].append(-log_prob_ws * diff)
-            actor_losses[2].append(-log_prob_wm * diff)
+            actor_losses.append(-log_prob * diff)
 
             # The critic must be updated so that it predicts a better estimate of
             # the future rewards.
             critic_losses.append(
-                huber_loss(keras.ops.expand_dims(value, 0), keras.ops.expand_dims(ret, 0))
+                keras.losses.MeanSquaredError()(
+                    keras.ops.expand_dims(value, 0),
+                    keras.ops.expand_dims(ret, 0)
+                )
             )
 
         # Backpropagation
         loss_value = [
-            sum(actor_losses[0]),
-            sum(actor_losses[1]),
-            sum(actor_losses[2]),
+            sum(actor_losses),
             sum(critic_losses)
         ]
         #print("Loss value: ", loss_value)
@@ -171,15 +157,19 @@ for episode in range(num_episodes):
     # Log details
     episode_count += 1
     if episode_count % 1 == 0:
-        template = ("running reward: {:.2f}, "
+        template = ("SA temp: {:.2f}, "
+                    "actual objective: {:.2f}, "
+                    "running reward: {:.2f}, "
                     "critic error: {:.2f}, "
                     "actors error: {:.2f}, "
                     "episode reward: {:.2f} "
                     "and number of moves {}  at episode {}")
         print(template.format(
+            env.sa_temp,
+            abs(env.best_obj),
             running_reward,
             np.mean(critic_losses),
-            np.mean([sum(actor_losses[0]), sum(actor_losses[1]), sum(actor_losses[2])]),
+            np.mean(actor_losses),
             episode_reward,
             len(critic_losses),
             episode_count))

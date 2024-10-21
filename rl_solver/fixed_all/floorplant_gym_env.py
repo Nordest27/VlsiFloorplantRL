@@ -33,13 +33,15 @@ def to_positions(l: list[int]) -> list[int]:
 class FloorPlantEnv(gym.Env):
 
     fpp: PyFloorPlantProblem = None
-    initial_fpp: PyFloorPlantProblem = None
+    best_sp: PyFloorPlantProblem = None
     n: int
-    initial_obj: int
-    previous_obj: int
-    obj: int = None
+    best_obj: int = -1
+    previous_obj: int = -1
+    obj: int = -1
     max_steps: int = 50
     steps: int = 0
+    sa_temp: float = 100
+    sa_alpha: float = 0.99
 
     def __init__(self, n: int):
         self.n = n
@@ -77,14 +79,21 @@ class FloorPlantEnv(gym.Env):
         return [seed]
 
     def reset(self):
-        if not self.initial_fpp:
-            self.initial_fpp = PyFloorPlantProblem(self.n)
 
-        self.fpp = self.initial_fpp.copy()
-        #self.fpp.shuffle_sp()
+        if not self.best_sp:
+            self.best_sp = PyFloorPlantProblem(self.n)
+            self.fpp = self.best_sp
 
-        self.initial_obj = -self.fpp.get_current_sp_objective()
-        self.obj = self.initial_obj
+        sa_cost = (-self.obj) - (-self.best_obj) + 10e-8
+        print(sa_cost, np.exp(sa_cost/min(-self.sa_temp, -1e-8)), np.random.rand())
+        if sa_cost < 0 or np.exp(sa_cost/min(-self.sa_temp, -1e-8)) > np.random.rand():
+            self.best_sp = self.fpp
+
+        self.fpp = self.best_sp.copy()
+        # self.fpp.shuffle_sp()
+
+        self.best_obj = -self.fpp.get_current_sp_objective()
+        self.obj = self.best_obj
 
         self.steps = 0
 
@@ -92,7 +101,7 @@ class FloorPlantEnv(gym.Env):
             tuple(to_positions(self.fpp.x())),
             tuple(to_positions(self.fpp.y())),
         ])
-
+        self.sa_temp = self.sa_temp*self.sa_alpha
         assert self.observation_space.contains(self.observation)
 
     def step(self, action: tuple[int, int, int]):
@@ -102,13 +111,13 @@ class FloorPlantEnv(gym.Env):
 
         self.steps += 1
         if move == 9 or self.steps > self.max_steps:
-            obj_diff = self.obj - self.initial_obj
-            if obj_diff < 0:
-                obj_diff = -1
-            return self.observation, obj_diff, True, {}
+            obj_diff = self.obj - self.best_obj
+            # if obj_diff < 0:
+            #    obj_diff = 0
+            return self.observation, 0, True, {}
 
         if i >= self.n or j >= self.n or i == j:
-            return self.observation, -1, False, {}
+            return self.observation, 0, False, {}
 
         self.previous_obj = self.obj
         self.obj = -self.fpp.apply_sp_move(i, j, move)
@@ -119,7 +128,7 @@ class FloorPlantEnv(gym.Env):
         ])
         assert self.observation_space.contains(self.observation)
 
-        return self.observation, -1, False, {}
+        return self.observation, self.obj - self.previous_obj, False, {}
 
     def render(self):
         self.fpp.visualize()
