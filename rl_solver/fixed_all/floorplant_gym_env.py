@@ -33,7 +33,8 @@ def to_positions(l: list[int]) -> list[int]:
 class FloorPlantEnv(gym.Env):
 
     fpp: PyFloorPlantProblem = None
-    best_sp: PyFloorPlantProblem = None
+    best_fpp: PyFloorPlantProblem = None
+    current_fpp: PyFloorPlantProblem = None
     n: int
     best_obj: int = -1
     previous_obj: int = -1
@@ -41,7 +42,7 @@ class FloorPlantEnv(gym.Env):
     max_steps: int = 50
     steps: int = 0
     sa_temp: float = 100
-    sa_alpha: float = 0.99
+    sa_alpha: float = 0.995
 
     def __init__(self, n: int):
         self.n = n
@@ -80,20 +81,24 @@ class FloorPlantEnv(gym.Env):
 
     def reset(self):
 
-        if not self.best_sp:
-            self.best_sp = PyFloorPlantProblem(self.n)
-            self.fpp = self.best_sp
+        if not self.best_fpp:
+            self.best_fpp = PyFloorPlantProblem(self.n)
+            self.current_fpp = self.best_fpp.copy()
+            self.fpp = self.best_fpp.copy()
 
         sa_cost = (-self.obj) - (-self.best_obj) + 10e-8
-        print(sa_cost, np.exp(sa_cost/min(-self.sa_temp, -1e-8)), np.random.rand())
-        if sa_cost < 0 or np.exp(sa_cost/min(-self.sa_temp, -1e-8)) > np.random.rand():
-            self.best_sp = self.fpp
+        if sa_cost < 0:
+            self.best_fpp = self.fpp.copy()
+            #self.current_fpp = self.best_fpp.copy()
+        elif np.exp(sa_cost/min(-self.sa_temp, -1e-8)) > np.random.rand():
+            pass
+            #self.current_fpp = self.fpp.copy()
 
-        self.fpp = self.best_sp.copy()
+        self.fpp = self.current_fpp.copy()
         # self.fpp.shuffle_sp()
 
-        self.best_obj = -self.fpp.get_current_sp_objective()
-        self.obj = self.best_obj
+        self.best_obj = -self.best_fpp.get_current_sp_objective()
+        self.obj = -self.fpp.get_current_sp_objective()
 
         self.steps = 0
 
