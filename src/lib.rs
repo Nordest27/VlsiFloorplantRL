@@ -1,6 +1,6 @@
 // Using as a guide https://saidvandeklundert.net/learn/2021-11-18-calling-rust-from-python-using-pyo3/
 use pyo3::prelude::*;
-use crate::domain::{FloorPlantProblem, SpMove};
+use crate::domain::{FloorPlantProblem, SequencePair, SpMove};
 use crate::local_search::simulated_annealing;
 
 mod domain;
@@ -51,6 +51,10 @@ impl PyFloorPlantProblem {
     }
 
     pub fn shuffle_sp(&mut self) { self.fpp.best_sp.shuffle() }
+
+    pub fn set_sp(&mut self, x: Vec<i32>, y: Vec<i32>) {
+        self.fpp.best_sp = SequencePair { x, y };
+    }
 
     pub fn apply_sp_move(
         &mut self,
