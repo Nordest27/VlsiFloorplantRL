@@ -3,9 +3,11 @@
 # https://github.com/openai/gym/blob/pr/429/gym/envs/toy_text/hotter_colder.py
 import random
 import string
+from typing import Optional, Tuple
 
 import gym
 from gym import spaces
+from gym.core import ObsType
 from gym.utils import seeding
 import numpy as np
 
@@ -19,14 +21,14 @@ def to_numpy_array(l: list[int]):
 class FloorPlantEnv(gym.Env):
 
     fpp: PyFloorPlantProblem = None
-    best_obj: int = -1
+    best_obj: int = -np.inf
     n: int
 
     def __init__(self, n: int):
         self.n = n
         self.action_space = spaces.Tuple([
-            spaces.Discrete(i)
-            for i in range(2, n+1)
+            spaces.Tuple([spaces.Discrete(n) for _ in range(n)]),
+            spaces.Tuple([spaces.Discrete(n) for _ in range(n)])
         ])
         self.observation_space=spaces.Tuple([
             # offset widths
@@ -41,6 +43,11 @@ class FloorPlantEnv(gym.Env):
                 for _ in range(self.n)
             ])
         ])
+        self.observation = None
+        self.reset()
+        super().__init__()
+
+    def reset(self):
         self.fpp = PyFloorPlantProblem(self.n)
         connected_to = tuple([tuple([int(v) for v in row]) for row in self.fpp.connected_to()])
         self.observation = tuple([
@@ -49,7 +56,6 @@ class FloorPlantEnv(gym.Env):
             connected_to,
         ])
         assert self.observation_space.contains(self.observation)
-        super().__init__()
 
     def get_input(self) -> tuple[np.ndarray, np.ndarray]:
         # Assuming offsets is a flat array combining two observations
@@ -70,12 +76,12 @@ class FloorPlantEnv(gym.Env):
         new_fpp = self.fpp.copy()
         new_fpp.set_sp(x, y)
 
-        obj = -new_fpp.get_objective()
+        obj = -new_fpp.get_current_sp_objective()
         if obj > self.best_obj:
             self.best_obj = obj
             self.fpp = new_fpp
 
-        return -new_fpp.get_current_sp_objective()
+        return obj
 
     def render(self):
         self.fpp.visualize()
