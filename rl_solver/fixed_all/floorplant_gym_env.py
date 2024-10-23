@@ -39,10 +39,11 @@ class FloorPlantEnv(gym.Env):
     best_obj: int = -1
     previous_obj: int = -1
     obj: int = -1
-    max_steps: int = 50
+    max_steps: int = 5
     steps: int = 0
     sa_temp: float = 100
-    sa_alpha: float = 0.995
+    sa_alpha: float = 0.999
+    since_previous_upgrade: int = 0
 
     def __init__(self, n: int):
         self.n = n
@@ -89,13 +90,16 @@ class FloorPlantEnv(gym.Env):
         sa_cost = (-self.obj) - (-self.best_obj) + 10e-8
         if sa_cost < 0:
             self.best_fpp = self.fpp.copy()
-            #self.current_fpp = self.best_fpp.copy()
+            # self.current_fpp = self.best_fpp.copy()
         elif np.exp(sa_cost/min(-self.sa_temp, -1e-8)) > np.random.rand():
             pass
-            #self.current_fpp = self.fpp.copy()
+            # self.current_fpp = self.fpp.copy()
+        if sa_cost > -self.best_obj * 0.2:
+            pass
+            # self.current_fpp = self.best_fpp.copy()
 
         self.fpp = self.current_fpp.copy()
-        # self.fpp.shuffle_sp()
+        self.fpp.shuffle_sp()
 
         self.best_obj = -self.best_fpp.get_current_sp_objective()
         self.obj = -self.fpp.get_current_sp_objective()
@@ -106,10 +110,11 @@ class FloorPlantEnv(gym.Env):
             tuple(to_positions(self.fpp.x())),
             tuple(to_positions(self.fpp.y())),
         ])
-        self.sa_temp = self.sa_temp*self.sa_alpha
+        self.sa_temp = self.sa_temp * self.sa_alpha
+        self.since_previous_upgrade += 1
         assert self.observation_space.contains(self.observation)
 
-    def step(self, action: tuple[int, int, int]):
+    def think_step(self, action: tuple[int, int, int]):
         assert self.action_space.contains(action)
         #print("Taking action: ", action)
         i, j, move = action
@@ -119,7 +124,7 @@ class FloorPlantEnv(gym.Env):
             obj_diff = self.obj - self.best_obj
             # if obj_diff < 0:
             #    obj_diff = 0
-            return self.observation, 0, True, {}
+            return self.observation, max(0, self.obj + self.current_fpp.get_current_sp_objective()), True, {}
 
         if i >= self.n or j >= self.n or i == j:
             return self.observation, 0, False, {}
@@ -133,7 +138,23 @@ class FloorPlantEnv(gym.Env):
         ])
         assert self.observation_space.contains(self.observation)
 
-        return self.observation, self.obj - self.previous_obj, False, {}
+        return self.observation, 0, False, {}
+
+    def step(self, action: tuple[int, int, int]):
+        assert self.action_space.contains(action)
+        #print("Taking action: ", action)
+        i, j, move = action
+
+        self.steps += 1
+        if move == 9 or self.steps > self.max_steps:
+            return self.observation, 0, True, {}
+
+        if i >= self.n or j >= self.n or i == j:
+            return self.observation, 0, False, {}
+
+        self.current_fpp.apply_sp_move(i, j, move)
+
+        return self.observation, 0, False, {}
 
     def render(self):
         self.fpp.visualize()

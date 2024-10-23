@@ -1,13 +1,15 @@
 // Using as a guide https://saidvandeklundert.net/learn/2021-11-18-calling-rust-from-python-using-pyo3/
 use pyo3::prelude::*;
 use crate::domain::{FloorPlantProblem, SpMove};
+use crate::local_search::simulated_annealing;
 
 mod domain;
 mod local_search;
 
 #[pyclass]
 pub struct PyFloorPlantProblem {
-    fpp: FloorPlantProblem
+    fpp: FloorPlantProblem,
+    sa_fpp: FloorPlantProblem
 }
 
 #[pymethods]
@@ -15,11 +17,20 @@ impl PyFloorPlantProblem {
     #[new]
     pub fn new(n: usize) -> PyFloorPlantProblem {
         let fpp = FloorPlantProblem::generate_new(n);
-        PyFloorPlantProblem { fpp }
+        let mut aux_fpp = fpp.clone();
+        let sa_result = simulated_annealing(
+            &mut aux_fpp,
+            100.0,
+            0.1,
+            1.0-1e-5,
+            0.9
+        );
+        println!("Simulated Annealing solution: {sa_result}");
+        PyFloorPlantProblem { fpp, sa_fpp: aux_fpp }
     }
 
     pub fn copy(&self) -> PyFloorPlantProblem {
-        PyFloorPlantProblem { fpp: self.fpp.clone() }
+        PyFloorPlantProblem { fpp: self.fpp.clone(), sa_fpp: self.sa_fpp.clone() }
     }
 
     pub fn get_current_sp_objective(&self) -> PyResult<f32> {
@@ -73,6 +84,15 @@ impl PyFloorPlantProblem {
 
     pub fn visualize(&self) {
         self.fpp.visualize(&self.fpp.best_sp);
+    }
+
+    pub fn visualize_sa_solution(&self) {
+        let obj = self.sa_fpp.get_wire_length_estimate_and_area(&self.sa_fpp.best_sp);
+        println!(
+            "Simulated Annealing solution: {}",
+            obj.0 + obj.1
+        );
+        self.sa_fpp.visualize(&self.sa_fpp.best_sp)
     }
 }
 
