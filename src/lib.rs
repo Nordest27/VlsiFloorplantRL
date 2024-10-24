@@ -18,15 +18,17 @@ impl PyFloorPlantProblem {
     pub fn new(n: usize) -> PyFloorPlantProblem {
         let fpp = FloorPlantProblem::generate_new(n);
         let mut aux_fpp = fpp.clone();
-        let sa_result = simulated_annealing(
-            &mut aux_fpp,
+        PyFloorPlantProblem { fpp, sa_fpp: aux_fpp }
+    }
+
+    pub fn apply_simulated_annealing(&mut self) {
+        simulated_annealing(
+            &mut self.sa_fpp,
             100.0,
             0.1,
             1.0-1e-5,
             0.9
         );
-        println!("Simulated Annealing solution: {sa_result}");
-        PyFloorPlantProblem { fpp, sa_fpp: aux_fpp }
     }
 
     pub fn copy(&self) -> PyFloorPlantProblem {

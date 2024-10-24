@@ -104,3 +104,42 @@ pub fn hill_climbing(
     fpp.visualize(&fpp.best_sp);
     best_objective.0 + best_objective.1
 }
+
+#[derive(Clone)]
+struct MonteCarloNode {
+    sp: SequencePair,
+    first_move_index: usize,
+}
+
+pub fn monte_carlo_estimation_search(
+    fpp: &FloorPlantProblem,
+    nodes_to_expand: i32
+) -> Vec<f32> {
+    let init_moves: Vec<(SequencePair, (f32, f32))> = fpp.get_all_sp_neighbours_with_obj(&fpp.best_sp);
+    let init_moves_len = init_moves.len();
+    let mut init_move_value_estimations: Vec<f32> = vec![0.0; init_moves_len];
+    let mut nodes: Vec<MonteCarloNode> = vec![];
+    for i in 0..init_moves_len {
+        nodes.push(MonteCarloNode {sp: init_moves[i].0.clone(), first_move_index: i});
+        init_move_value_estimations[i] = init_moves[i].1.0 + init_moves[i].1.1;
+    }
+    for i in init_moves_len..(init_moves_len + nodes_to_expand as usize) {
+        let rand_i = random::<usize>()%i;
+        let sp_to_expand = &nodes[rand_i].sp;
+        let first_move_index = nodes[rand_i].first_move_index;
+        let (sp, obj) = fpp.get_random_sp_neighbour_with_obj(sp_to_expand);
+        nodes.push(MonteCarloNode {sp, first_move_index});
+        let obj_sum = obj.0 + obj.1;
+        if obj_sum < init_move_value_estimations[first_move_index] {
+            init_move_value_estimations[first_move_index] = obj_sum;
+        }
+    }
+
+    println!("Init move value estimations with {nodes_to_expand} samples");
+    print!("[");
+    for mv in &init_move_value_estimations {
+        print!("{mv}, ");
+    }
+    println!("]");
+    init_move_value_estimations
+}

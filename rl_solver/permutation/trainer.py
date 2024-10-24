@@ -54,12 +54,12 @@ actor_y_outputs = [keras.layers.Dense(2, activation="softmax")(actor_hidden_laye
 for i in range(3, env.n+1):
     actor_x_outputs.insert(0,
         keras.layers.Dense(i, activation="softmax")(
-            keras.layers.Concatenate()([actor_x_outputs[0], actor_y_outputs[0]])
+            keras.layers.Concatenate()([actor_x_outputs[0]])
         )
     )
     actor_y_outputs.insert(0,
         keras.layers.Dense(i, activation="softmax")(
-            keras.layers.Concatenate()([actor_x_outputs[0], actor_y_outputs[0]])
+            keras.layers.Concatenate()([actor_x_outputs[0]])
         )
     )
 
@@ -98,12 +98,10 @@ decay_rate = 0.9995
 
 batch_size = 1
 
-env.reset()
-
 for episode in range(num_episodes):
     episode_count += 1
     episode_reward = 0
-    env.reset()
+    # env.reset()
     with GradientTape() as tape:
         if episode_count % 100 == 0:
             pass
@@ -175,13 +173,6 @@ for episode in range(num_episodes):
         # Update running reward
         running_reward = 0.05 * episode_reward + (1 - 0.05) * running_reward
 
-        # Normalize returns
-        returns_history = np.array(returns_history)
-        if np.std(returns_history) > eps:
-            returns_history = 10*(returns_history - np.mean(returns_history)) / (np.std(returns_history) + eps)
-        else:
-            returns_history = 10*(returns_history - np.mean(returns_history))
-        returns_history = returns_history.tolist()
 
         # Calculating loss values to update our network
         history = zip(x_action_probs_history, y_action_probs_history, critic_value_history, returns_history)
@@ -197,7 +188,7 @@ for episode in range(num_episodes):
 
             actor_losses.append(0)
             for log_prob in x_log_probs + y_log_probs:
-                actor_losses[-1] += (-log_prob * diff)
+                actor_losses[-1] += -log_prob * diff
 
             # The critic must be updated so that it predicts a better estimate of
             # the future rewards.
@@ -205,8 +196,8 @@ for episode in range(num_episodes):
 
         # Backpropagation
         loss_value = [
+            0*sum(critic_losses)/len(critic_losses),
             sum(actor_losses)/(len(actor_losses)),
-            sum(critic_losses)/len(critic_losses)
         ]
         #print("Loss value: ", loss_value)
         grads = tape.gradient(loss_value, model.trainable_variables)

@@ -126,6 +126,10 @@ class FloorPlantEnv(gym.Env):
         assert self.action_space.contains(action)
         #print("Taking action: ", action)
         i, j, move = action
+        if self.fpp.x()[0] == i or self.fpp.y()[0] == j:
+            return self.observation, 100, True, {}
+        else:
+            return self.observation, 0, True, {}
 
         self.steps += 1
         if self.steps > self.max_steps:

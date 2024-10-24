@@ -72,6 +72,7 @@ class FloorPlantEnv(gym.Env):
     def get_permutation(self, x: list[int], y: list[int]) -> float:
         assert self.action_space.contains((tuple(x), tuple(y)))
         #print("Taking action: ", action)
+        return sum([int(xv > yv) for xv, yv in zip(x, y)])
 
         new_fpp = self.fpp.copy()
         new_fpp.set_sp(x, y)

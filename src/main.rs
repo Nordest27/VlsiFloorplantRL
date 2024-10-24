@@ -2,13 +2,13 @@ use std::time::Instant;
 use rand;
 use rand::random;
 use crate::domain::{SequencePair, FloorPlantProblem};
-use crate::local_search::{hill_climbing, simulated_annealing};
+use crate::local_search::{hill_climbing, monte_carlo_estimation_search, simulated_annealing};
 mod domain;
 mod local_search;
 
 fn main() {
     let now = Instant::now();
-    let n: i32 = 25;
+    let n: i32 = 50;
     let mut min_widths = vec![0; n as usize];
     let mut min_heights = vec![0; n as usize];
     let mut blocks_area = vec![0; n as usize];
@@ -39,18 +39,27 @@ fn main() {
         &mut fpp,
         100.0,
         0.1,
-        1.0-1e-7,
+        1.0-1e-6,
         0.9
     );
-
+    /*
     hill_climbing(
         &mut fpp,
         0.5
     );
+    */
     //fpp.sp = fpp.get_random_sp_neighbour();
     //fpp.visualize();
     //fpp.get_base_widths();
     //fpp.get_base_heights();
+
+    monte_carlo_estimation_search(&fpp, 1);
+    monte_carlo_estimation_search(&fpp, 10);
+    monte_carlo_estimation_search(&fpp, 100);
+    monte_carlo_estimation_search(&fpp, 1000);
+    monte_carlo_estimation_search(&fpp, 10000);
+    monte_carlo_estimation_search(&fpp, 100000);
+    monte_carlo_estimation_search(&fpp, 1000000);
     let elapsed_time = now.elapsed();
     println!("Elapsed time in us: {}", elapsed_time.as_micros());
     println!("Elapsed time: {}s {}ms {}us",

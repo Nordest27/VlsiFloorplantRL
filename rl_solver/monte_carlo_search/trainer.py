@@ -48,7 +48,7 @@ hidden_layer = keras.layers.Concatenate()([x_conv_layer, y_conv_layer])
 # wfa = keras.layers.Dense(env.n, activation='softmax')(hidden_layer)
 # wsa = keras.layers.Dense(env.n, activation='softmax')(hidden_layer)
 # wma = keras.layers.Dense(10, activation='softmax')(hidden_layer)
-actor_hidden_layer = keras.layers.Dense(512, activation="tanh")(hidden_layer)
+actor_hidden_layer = keras.layers.Dense(512, activation="relu")(hidden_layer)
 actor = keras.layers.Dense(env.n*env.n*n_moves)(actor_hidden_layer)
 actor = keras.layers.Softmax()(
     actor,
@@ -79,7 +79,7 @@ episode_count = 0
 max_reward_seen = 0
 
 epsilon = 1.0  # Exploration factor
-epsilon_decay = 0.995
+epsilon_decay = 0.95
 
 batch_size = 10
 
