@@ -26,6 +26,7 @@ fn main() {
             connected_to[j][i] = true;
         }
     }
+
     let mut fpp: FloorPlantProblem = FloorPlantProblem {
         n,
         best_sp: SequencePair::new_shuffled(n),
@@ -34,13 +35,14 @@ fn main() {
         blocks_area,
         connected_to: connected_to.clone()
     };
+    let mut fpp_clone = fpp.clone();
 
     simulated_annealing(
         &mut fpp,
         100.0,
         0.1,
-        1.0-1e-6,
-        0.9
+        1.0-1e-7,
+        0.5
     );
     /*
     hill_climbing(
@@ -53,13 +55,14 @@ fn main() {
     //fpp.get_base_widths();
     //fpp.get_base_heights();
 
-    monte_carlo_estimation_search(&fpp, 1);
-    monte_carlo_estimation_search(&fpp, 10);
-    monte_carlo_estimation_search(&fpp, 100);
-    monte_carlo_estimation_search(&fpp, 1000);
-    monte_carlo_estimation_search(&fpp, 10000);
-    monte_carlo_estimation_search(&fpp, 100000);
-    monte_carlo_estimation_search(&fpp, 1000000);
+    for i in n..1000 {
+        (_, fpp_clone.best_sp) = monte_carlo_estimation_search(
+            &fpp_clone,
+            100000,
+            0.5,
+        );
+    }
+
     let elapsed_time = now.elapsed();
     println!("Elapsed time in us: {}", elapsed_time.as_micros());
     println!("Elapsed time: {}s {}ms {}us",
