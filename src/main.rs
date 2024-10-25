@@ -8,7 +8,7 @@ mod local_search;
 
 fn main() {
     let now = Instant::now();
-    let n: i32 = 50;
+    let n: i32 = 20;
     let mut min_widths = vec![0; n as usize];
     let mut min_heights = vec![0; n as usize];
     let mut blocks_area = vec![0; n as usize];
@@ -26,7 +26,6 @@ fn main() {
             connected_to[j][i] = true;
         }
     }
-
     let mut fpp: FloorPlantProblem = FloorPlantProblem {
         n,
         best_sp: SequencePair::new_shuffled(n),
@@ -37,13 +36,16 @@ fn main() {
     };
     let mut fpp_clone = fpp.clone();
 
+
+    /*
     simulated_annealing(
         &mut fpp,
         100.0,
         0.1,
-        1.0-1e-7,
+        1.0-1e-5,
         0.5
     );
+    */
     /*
     hill_climbing(
         &mut fpp,
@@ -55,12 +57,21 @@ fn main() {
     //fpp.get_base_widths();
     //fpp.get_base_heights();
 
-    for i in n..1000 {
-        (_, fpp_clone.best_sp) = monte_carlo_estimation_search(
+    let mut should_see = -1.0;
+    for _ in n..10000 {
+        let obj = fpp_clone.get_wire_length_estimate_and_area(&fpp_clone.best_sp);
+        println!("Current obj :{}", obj.0+obj.1);
+        let result = monte_carlo_estimation_search(
             &fpp_clone,
-            100000,
-            0.5,
+            10000,
+            5,
+            should_see
         );
+        if result.0.len() == 0 {break}
+        fpp_clone.best_sp = result.1;
+        fpp_clone.visualize(&fpp_clone.best_sp);
+        should_see = result.2
+
     }
 
     let elapsed_time = now.elapsed();

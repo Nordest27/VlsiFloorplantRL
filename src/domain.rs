@@ -214,8 +214,9 @@ impl SpMove {
         }
     }
 
-    pub fn random() -> Self {
-        SpMove::new(random::<usize>()%9)
+    pub fn random(only_swaps: bool) -> Self {
+        if only_swaps{ SpMove::new(random::<usize>()%3) }
+        else { SpMove::new(random::<usize>()%9) }
     }
 
     pub fn execute_move(
@@ -386,7 +387,7 @@ impl FloorPlantProblem {
     }
 
     pub fn get_random_sp_neighbour_with_obj(
-        &self, sp: &SequencePair
+        &self, sp: &SequencePair, only_swaps: bool
     ) -> (SequencePair, (f32, f32)) {
         let n = self.n as usize;
         let which_first = random::<usize>() % n;
@@ -409,7 +410,7 @@ impl FloorPlantProblem {
         println!("Which first y pos {}", y_positions[which_first]);
         println!("Which second y pos {}", y_positions[which_second]);
         */
-        let new_sp = SpMove::random().execute_move(
+        let new_sp = SpMove::random(only_swaps).execute_move(
             sp,
             x_positions[which_first],
             x_positions[which_second],
@@ -420,8 +421,34 @@ impl FloorPlantProblem {
         (new_sp, obj)
     }
 
+    pub fn get_random_sp_neighbour(
+        &self, sp: &SequencePair, only_swaps: bool
+    ) -> SequencePair {
+        let n = self.n as usize;
+        let which_first = random::<usize>() % n;
+        let mut which_second = random::<usize>() % n;
+        while which_second == which_first {
+            which_second = random::<usize>() % n;
+        }
+        let mut x_positions = vec![0; n];
+        let mut y_positions = vec![0; n];
+
+        for i in 0..n {
+            x_positions[sp.x[i] as usize] = i;
+            y_positions[sp.y[i] as usize] = i;
+        }
+        let new_sp = SpMove::random(only_swaps).execute_move(
+            sp,
+            x_positions[which_first],
+            x_positions[which_second],
+            y_positions[which_first],
+            y_positions[which_second]
+        );
+        new_sp
+    }
+
     pub fn get_all_sp_neighbours_with_obj(
-        &self, sp: &SequencePair
+        &self, sp: &SequencePair, only_swaps: bool
     ) -> Vec<(SequencePair, (f32, f32))> {
         let n = self.n as usize;
         let mut x_positions = vec![0; n];
@@ -434,6 +461,9 @@ impl FloorPlantProblem {
 
         let mut result = vec![];
         for m in SpMove::iter() {
+            if only_swaps && m != SpMove::SwapX && m != SpMove::SwapY && m != SpMove::SwapXY {
+                continue
+            }
             for i in 0..n {
                 for j in 0..n {
                     if j == i {continue}
@@ -449,7 +479,40 @@ impl FloorPlantProblem {
                 }
             }
         }
+        result
+    }
 
+    pub fn get_all_sp_neighbours(
+        &self, sp: &SequencePair, only_swaps: bool
+    ) -> Vec<SequencePair> {
+        let n = self.n as usize;
+        let mut x_positions = vec![0; n];
+        let mut y_positions = vec![0; n];
+
+        for i in 0..n {
+            x_positions[sp.x[i] as usize] = i;
+            y_positions[sp.y[i] as usize] = i;
+        }
+
+        let mut result = vec![];
+        for m in SpMove::iter() {
+            if only_swaps && m != SpMove::SwapX && m != SpMove::SwapY && m != SpMove::SwapXY {
+                continue
+            }
+            for i in 0..n {
+                for j in 0..n {
+                    if j == i {continue}
+                    let new_sp = m.clone().execute_move(
+                        sp,
+                        x_positions[i],
+                        x_positions[j],
+                        y_positions[i],
+                        y_positions[j]
+                    );
+                    result.push(new_sp);
+                }
+            }
+        }
         result
     }
 

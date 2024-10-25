@@ -22,7 +22,7 @@ pub fn simulated_annealing(
     let mut evaluations = 0;
     while temp > temp_min {
         evaluations += 1;
-        let (sp, new_objective) = fpp.get_random_sp_neighbour_with_obj(&current_sp);
+        let (sp, new_objective) = fpp.get_random_sp_neighbour_with_obj(&current_sp, false);
         let cost = (1.0-area_importance)*new_objective.0 + area_importance * new_objective.1
                    - (1.0-area_importance)* best_objective.0 - area_importance* best_objective.1;
         if cost < -0.05 {
@@ -73,7 +73,7 @@ pub fn hill_climbing(
     loop {
         let mut best_sp = fpp.best_sp.clone();
         let mut better_found = false;
-        for (sp, new_objective) in fpp.get_all_sp_neighbours_with_obj(&fpp.best_sp) {
+        for (sp, new_objective) in fpp.get_all_sp_neighbours_with_obj(&fpp.best_sp, false) {
             evaluations += 1;
             let cost = (1.0 - area_importance) * new_objective.0 + area_importance * new_objective.1
                 - (1.0 - area_importance) * best_objective.0 - area_importance * best_objective.1;
@@ -105,81 +105,93 @@ pub fn hill_climbing(
     best_objective.0 + best_objective.1
 }
 
-#[derive(Clone)]
-struct MonteCarloNode {
-    sp: SequencePair,
-    obj: f32,
-    diff_with_previous: f32,
-    first_move_index: usize,
-}
 
 pub fn monte_carlo_estimation_search(
     fpp: &FloorPlantProblem,
-    nodes_to_expand: i32,
-    exploration_factor: f32,
-) -> (Vec<f32>, SequencePair) {
+    samples: usize,
+    n_moves: usize,
+    should_see: f32,
+) -> (Vec<f32>, SequencePair, f32) {
     let initial_objective = fpp.get_wire_length_estimate_and_area(&fpp.best_sp);
-    let init_moves: Vec<(SequencePair, (f32, f32))> = fpp.get_all_sp_neighbours_with_obj(&fpp.best_sp);
+    let init_obj = initial_objective.0 + initial_objective.1;
+    let mut should_see = should_see;
+    if should_see < 0.0 { should_see = init_obj - 1.0 }
+    let init_moves: Vec<SequencePair> = fpp.get_all_sp_neighbours(&fpp.best_sp, true);
     let init_moves_len = init_moves.len();
     let mut best_sp_seen = fpp.best_sp.clone();
-    let mut best_obj = initial_objective.0 + initial_objective.1;
+    let mut best_obj = init_obj;
     let mut init_move_value_estimations: Vec<f32> = vec![0.0; init_moves_len];
     let mut best_init_move_index: usize = 0;
-    let mut nodes: Vec<MonteCarloNode> = vec![];
-    for i in 0..init_moves_len {
-        let obj_sum = init_moves[i].1.0 + init_moves[i].1.1;
-        let diff_with_previous = initial_objective.0 + initial_objective.1 - obj_sum;
-        nodes.push(MonteCarloNode {
-            sp: init_moves[i].0.clone(),
-            obj: obj_sum,
-            diff_with_previous,
-            first_move_index: i
-        });
-        init_move_value_estimations[i] = diff_with_previous;
-    }
-    for i in init_moves_len..(init_moves_len + nodes_to_expand as usize) {
-        let mut should_explore = random::<f32>();
-        let mut rand_i = random::<usize>()%i;
 
-        while should_explore > exploration_factor && nodes[rand_i].diff_with_previous < 0.0 {
-            rand_i = random::<usize>()%i;
-            should_explore -= 0.0001;
+    while best_obj > should_see  {
+        for _ in 0..samples {
+            let initial_move = random::<usize>() % init_moves_len;
+            let mut sp = init_moves[initial_move].clone();
+            for _ in 0..n_moves {
+                let mut aux_sp = fpp.get_random_sp_neighbour(&sp, true);
+                while aux_sp.x != sp.x && aux_sp.y != sp.y &&
+                    aux_sp.x != fpp.best_sp.x && aux_sp.y != fpp.best_sp.y {
+                    aux_sp = fpp.get_random_sp_neighbour(&sp, true);
+                }
+                sp = aux_sp
+            }
+            let obj = fpp.get_wire_length_estimate_and_area(&sp);
+            let obj_sum = obj.0 + obj.1;
+            if best_obj > obj_sum {
+                best_obj = obj_sum;
+                best_sp_seen = sp;
+                best_init_move_index = initial_move;
+            }
+            let diff_with_initial = init_obj - obj_sum;
+            if diff_with_initial > init_move_value_estimations[initial_move] {
+                init_move_value_estimations[initial_move] = diff_with_initial;
+            }
         }
-        let sp_to_expand = &nodes[rand_i].sp;
-        let first_move_index = nodes[rand_i].first_move_index;
-        let (sp, obj) = fpp.get_random_sp_neighbour_with_obj(sp_to_expand);
-        let obj_sum = obj.0 + obj.1;
-        let diff_with_previous = &nodes[rand_i].obj - obj_sum;
-        if best_obj > obj_sum {
-            best_obj = obj_sum;
-            best_sp_seen  = sp.clone();
-            best_init_move_index = first_move_index;
-        }
-        nodes.push(MonteCarloNode { sp, obj: obj_sum, diff_with_previous, first_move_index });
-
-        let diff_with_initial = initial_objective.0 + initial_objective.1 - obj_sum;
-        if diff_with_initial > init_move_value_estimations[first_move_index] {
-            init_move_value_estimations[first_move_index] = diff_with_initial;
-        }
+        should_see += 1.0;
     }
-    println!("Init move value estimations with {nodes_to_expand} \
-              samples and exploration factor {exploration_factor}");
-    println!("Best sp obj {best_obj} and obj diff seen {}", initial_objective.0 + initial_objective.1 - best_obj);
+
+    println!("Init move value estimations with {samples} \
+              samples and n moves {n_moves}");
+    println!("Best sp obj {best_obj} and obj diff seen {}", init_obj - best_obj);
     //fpp.visualize(&best_sp_seen);
+
     /*
+    let mut i = 0;
     print!("[");
     for mv in &init_move_value_estimations {
-        print!("{mv}, ");
+        print!("{i}: {mv}, ");
+        i += 1;
+    }
+    println!("]");
+
+    i = 0;
+    print!("[");
+    for (sp, _) in &init_moves {
+        let obj = fpp.get_wire_length_estimate_and_area(sp);
+        print!("{i}: {}, ", obj.0 + obj.1);
+        i += 1;
     }
     println!("]");
     */
+    if best_obj >= init_obj {
+        println!("Nothing better found");
+        return (vec![], fpp.best_sp.clone(), best_obj)
+    }
+    let mut aux_obj = fpp.get_wire_length_estimate_and_area(
+        &init_moves[best_init_move_index]
+    );
+    let mut best_move_obj = aux_obj.0 + aux_obj.1;
     for i in 0..init_moves_len {
-        if init_move_value_estimations[i] == init_move_value_estimations[best_init_move_index] &&
-            (nodes[i].obj < nodes[best_init_move_index].obj ||
-                nodes[best_init_move_index].obj == initial_objective.0 + initial_objective.1)
-        {
-            best_init_move_index = i;
+        if init_move_value_estimations[i] == init_move_value_estimations[best_init_move_index] {
+            aux_obj = fpp.get_wire_length_estimate_and_area(&init_moves[i]);
+            let other_obj = aux_obj.0+aux_obj.1;
+            if best_move_obj > other_obj {
+                best_init_move_index = i;
+                best_move_obj = other_obj;
+            }
         }
     }
-    (init_move_value_estimations, nodes[best_init_move_index].sp.clone())
+    println!("Chosen move: {} with estimate {}",
+             best_init_move_index, init_move_value_estimations[best_init_move_index]);
+    (init_move_value_estimations, init_moves[best_init_move_index].clone(), best_obj)
 }
