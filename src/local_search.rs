@@ -8,13 +8,13 @@ pub fn simulated_annealing(
     alpha: f32,
     area_importance: f32
 ) -> f32 {
-    println!("Alpha {}", alpha);
+    //println!("Alpha {}", alpha);
     assert!(alpha < 1.0 && alpha > 0.0);
     let mut best_objective = fpp.get_wire_length_estimate_and_area(&fpp.best_sp);
     let initial_objective = best_objective.clone();
-    println!("Initial solution: wire length: {}, area {}",
-             best_objective.0, best_objective.1);
-    fpp.visualize(&fpp.best_sp);
+    //println!("Initial solution: wire length: {}, area {}",
+    //         best_objective.0, best_objective.1);
+    //fpp.visualize(&fpp.best_sp);
     let mut temp = temp;
     let print_temp_interval = temp*0.1;
     let mut print_temp = temp - print_temp_interval;
@@ -29,10 +29,10 @@ pub fn simulated_annealing(
             current_sp = sp;
             fpp.best_sp = current_sp.clone();
             best_objective = new_objective;
-            println!("New best floor plan found! wire length: {}, area {}",
+            /*println!("New best floor plan found! wire length: {}, area {}",
                      best_objective.0, best_objective.1);
             println!("Temp {temp}, cost: {cost}");
-            fpp.visualize(&fpp.best_sp);
+            fpp.visualize(&fpp.best_sp);*/
         }
         else if random::<f32>() < (-cost/temp).exp() {
             current_sp = sp;
@@ -42,7 +42,7 @@ pub fn simulated_annealing(
         }
 
         if temp < print_temp {
-            println!("Current temp: {temp}, evaluations: {evaluations}");
+            //println!("Current temp: {temp}, evaluations: {evaluations}");
             print_temp = temp - print_temp_interval;
         }
         /*
@@ -51,25 +51,28 @@ pub fn simulated_annealing(
         }*/
         temp = temp*alpha;
     }
+    /*
     println!("Simulated annealing solution: wire length: {}, area {}",
              best_objective.0, best_objective.1);
     println!("Improved from initial_objective: wire length: {}, area {}",
             initial_objective.0, initial_objective.1);
-    println!("Total evaluations: {evaluations}");
-    fpp.visualize(&fpp.best_sp);
+    println!("Total evaluations: {evaluations}");*/
+    //fpp.visualize(&fpp.best_sp);
     best_objective.0 + best_objective.1
 }
 
 pub fn hill_climbing(
     fpp: &mut FloorPlantProblem,
-    area_importance: f32
+    area_importance: f32,
+    max_steps: i32
 ) -> f32 {
     let mut best_objective = fpp.get_wire_length_estimate_and_area(&fpp.best_sp);
     let initial_objective = best_objective.clone();
-    println!("Initial solution: wire length: {}, area {}",
+    /*println!("Initial solution: wire length: {}, area {}",
              best_objective.0, best_objective.1);
-    fpp.visualize(&fpp.best_sp);
+    fpp.visualize(&fpp.best_sp);*/
     let mut evaluations = 0;
+    let mut max_steps = max_steps;
     loop {
         let mut best_sp = fpp.best_sp.clone();
         let mut better_found = false;
@@ -80,28 +83,30 @@ pub fn hill_climbing(
             if cost < 0.0 {
                 best_sp = sp;
                 fpp.best_sp = best_sp.clone();
-                println!("new obj: {} + {} = {}, best obj: {} + {} = {}",
+                /*println!("new obj: {} + {} = {}, best obj: {} + {} = {}",
                          new_objective.0, new_objective.1,
                          new_objective.0 + new_objective.1,
                          best_objective.0, best_objective.1,
                          best_objective.0 + best_objective.1
-                );
+                );*/
                 best_objective = new_objective;
-                println!("New best floor plan found! wire length: {}, area {}",
+                /*println!("New best floor plan found! wire length: {}, area {}",
                          best_objective.0, best_objective.1);
                 println!("Cost: {cost}, evaluations: {evaluations}");
-                //fpp.visualize(&fpp.best_sp);
+                //fpp.visualize(&fpp.best_sp);*/
                 better_found = true;
             }
         }
-        if !better_found { break }
+        max_steps -= 1;
+        if !better_found || max_steps == 0 { break }
     }
+    /*
     println!("Hill climbing solution: wire length: {}, area {}",
              best_objective.0, best_objective.1);
     println!("Improved from initial_objective: wire length: {}, area {}",
              initial_objective.0, initial_objective.1);
     println!("Total evaluations: {evaluations}");
-    fpp.visualize(&fpp.best_sp);
+    fpp.visualize(&fpp.best_sp);*/
     best_objective.0 + best_objective.1
 }
 
@@ -149,13 +154,13 @@ pub fn monte_carlo_estimation_search(
         }
         should_see += 1.0;
     }
-
+    /*
     println!("Init move value estimations with {samples} \
               samples and n moves {n_moves}");
     println!("Best sp obj {best_obj} and obj diff seen {}", init_obj - best_obj);
     //fpp.visualize(&best_sp_seen);
 
-    /*
+
     let mut i = 0;
     print!("[");
     for mv in &init_move_value_estimations {
@@ -163,19 +168,10 @@ pub fn monte_carlo_estimation_search(
         i += 1;
     }
     println!("]");
-
-    i = 0;
-    print!("[");
-    for (sp, _) in &init_moves {
-        let obj = fpp.get_wire_length_estimate_and_area(sp);
-        print!("{i}: {}, ", obj.0 + obj.1);
-        i += 1;
-    }
-    println!("]");
     */
     if best_obj >= init_obj {
-        println!("Nothing better found");
-        return (vec![], fpp.best_sp.clone(), best_obj)
+        // println!("Nothing better found");
+        //return (vec![], fpp.best_sp.clone(), best_obj)
     }
     let mut aux_obj = fpp.get_wire_length_estimate_and_area(
         &init_moves[best_init_move_index]
@@ -191,7 +187,12 @@ pub fn monte_carlo_estimation_search(
             }
         }
     }
-    println!("Chosen move: {} with estimate {}",
-             best_init_move_index, init_move_value_estimations[best_init_move_index]);
+    //println!("Chosen move: {} with estimate {}",
+    //         best_init_move_index, init_move_value_estimations[best_init_move_index]);
     (init_move_value_estimations, init_moves[best_init_move_index].clone(), best_obj)
+}
+
+struct MonteCarloNode {
+    sp: SequencePair,
+    childs: Vec<MonteCarloNode>
 }

@@ -500,7 +500,7 @@ impl FloorPlantProblem {
                 continue
             }
             for i in 0..n {
-                for j in 0..n {
+                for j in i+1..n {
                     if j == i {continue}
                     let new_sp = m.clone().execute_move(
                         sp,

@@ -8,7 +8,7 @@ mod local_search;
 
 fn main() {
     let now = Instant::now();
-    let n: i32 = 20;
+    let n: i32 = 25;
     let mut min_widths = vec![0; n as usize];
     let mut min_heights = vec![0; n as usize];
     let mut blocks_area = vec![0; n as usize];
@@ -36,7 +36,20 @@ fn main() {
     };
     let mut fpp_clone = fpp.clone();
 
+    let fpp_to_visualize = FloorPlantProblem {
+        n: 8,
+        best_sp: SequencePair {
+            y: vec![2, 7, 5, 3, 6, 4, 1, 0],
+            x: vec![0, 4, 1, 7, 5, 3, 6, 2]
+        },
+        min_widths: vec![4, 3, 3, 3, 3, 3, 1, 2],
+        min_heights: vec![2, 1, 3, 5, 2, 5, 2, 4],
+        blocks_area: vec![8, 3, 9, 15, 6, 15, 2, 8],
+        connected_to: vec![vec![false; 8]; 8]
 
+    };
+    fpp_to_visualize.visualize(&fpp_to_visualize.best_sp);
+    return;
     /*
     simulated_annealing(
         &mut fpp,
@@ -56,7 +69,12 @@ fn main() {
     //fpp.visualize();
     //fpp.get_base_widths();
     //fpp.get_base_heights();
+    let result = monte_carlo_estimation_search(&fpp_clone, 100, 5, -1.0);
+    let result = monte_carlo_estimation_search(&fpp_clone, 1000, 5, -1.0);
+    let result = monte_carlo_estimation_search(&fpp_clone, 10000, 5, -1.0);
+    let result = monte_carlo_estimation_search(&fpp_clone, 100000, 5, -1.0);
 
+    /*
     let mut should_see = -1.0;
     for _ in n..10000 {
         let obj = fpp_clone.get_wire_length_estimate_and_area(&fpp_clone.best_sp);
@@ -95,4 +113,5 @@ fn main() {
         println!();
     }
     println!();
+    */
 }

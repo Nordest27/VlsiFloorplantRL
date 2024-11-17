@@ -91,6 +91,19 @@ class FloorPlantEnv(gym.Env):
 
         return x_con, y_con
 
+    def flattened_xy_positions(self) -> np.array:
+        xy = tuple([
+            tuple(to_positions(self.fpp.x())),
+            tuple(to_positions(self.fpp.y())),
+        ])
+        observation = []
+        for ob in xy:
+            observation.extend(np.ndarray.flatten(np.array(list(ob))))
+        return np.array(observation)
+
+    def get_rand_monte_carlo_dist(self, samples: int, moves: int) -> list[float]:
+        return self.fpp.get_monte_carlo_distribution(samples, moves)
+
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
@@ -106,7 +119,7 @@ class FloorPlantEnv(gym.Env):
             self.best_fpp = self.fpp.copy()
 
         self.fpp = self.current_fpp.copy()
-        self.fpp.shuffle_sp()
+        #self.fpp.shuffle_sp()
 
         self.best_obj = -self.best_fpp.get_current_sp_objective()
         self.current_obj = -self.current_fpp.get_current_sp_objective()
@@ -126,18 +139,6 @@ class FloorPlantEnv(gym.Env):
         assert self.action_space.contains(action)
         #print("Taking action: ", action)
         i, j, move = action
-        if self.fpp.x()[0] == i or self.fpp.y()[0] == j:
-            return self.observation, 100, True, {}
-        else:
-            return self.observation, 0, True, {}
-
-        self.steps += 1
-        if self.steps > self.max_steps:
-            return self.observation, 0, True, {}
-
-        if i >= self.n or j >= self.n or i == j:
-            print("SHOULDNT HAPPEN!")
-            return self.observation, 0, False, {}
 
         self.previous_obj = self.obj
         self.obj = -self.fpp.apply_sp_move(i, j, move)

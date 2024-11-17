@@ -1,15 +1,14 @@
 // Using as a guide https://saidvandeklundert.net/learn/2021-11-18-calling-rust-from-python-using-pyo3/
 use pyo3::prelude::*;
 use crate::domain::{FloorPlantProblem, SequencePair, SpMove};
-use crate::local_search::simulated_annealing;
+use crate::local_search::{hill_climbing, monte_carlo_estimation_search, simulated_annealing};
 
 mod domain;
 mod local_search;
 
 #[pyclass]
 pub struct PyFloorPlantProblem {
-    fpp: FloorPlantProblem,
-    sa_fpp: FloorPlantProblem
+    fpp: FloorPlantProblem
 }
 
 #[pymethods]
@@ -17,22 +16,33 @@ impl PyFloorPlantProblem {
     #[new]
     pub fn new(n: usize) -> PyFloorPlantProblem {
         let fpp = FloorPlantProblem::generate_new(n);
-        let mut aux_fpp = fpp.clone();
-        PyFloorPlantProblem { fpp, sa_fpp: aux_fpp }
-    }
-
-    pub fn apply_simulated_annealing(&mut self) {
-        simulated_annealing(
-            &mut self.sa_fpp,
-            100.0,
-            0.1,
-            1.0-1e-5,
-            0.9
-        );
+        PyFloorPlantProblem { fpp }
     }
 
     pub fn copy(&self) -> PyFloorPlantProblem {
-        PyFloorPlantProblem { fpp: self.fpp.clone(), sa_fpp: self.sa_fpp.clone() }
+        PyFloorPlantProblem { fpp: self.fpp.clone() }
+    }
+
+    pub fn apply_simulated_annealing(&mut self, temp: f32, alpha: f32) {
+        simulated_annealing(
+            &mut self.fpp,
+            temp,
+            0.1,
+            alpha,
+            0.5
+        );
+    }
+
+    pub fn apply_hill_climbing(&mut self, max_steps: i32) {
+        hill_climbing(
+            &mut self.fpp,
+            0.5,
+            max_steps
+        );
+    }
+
+    pub fn get_monte_carlo_distribution(&self, samples: usize, n_moves: usize) -> PyResult<Vec<f32>> {
+        Ok(monte_carlo_estimation_search(&self.fpp, samples, n_moves, -1.0).0)
     }
 
     pub fn get_current_sp_objective(&self) -> PyResult<f32> {
@@ -92,14 +102,6 @@ impl PyFloorPlantProblem {
         self.fpp.visualize(&self.fpp.best_sp);
     }
 
-    pub fn visualize_sa_solution(&self) {
-        let obj = self.sa_fpp.get_wire_length_estimate_and_area(&self.sa_fpp.best_sp);
-        println!(
-            "Simulated Annealing solution: {}",
-            obj.0 + obj.1
-        );
-        self.sa_fpp.visualize(&self.sa_fpp.best_sp)
-    }
 }
 
 #[pymodule]
