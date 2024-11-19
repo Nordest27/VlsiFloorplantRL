@@ -12,6 +12,8 @@ import numpy as np
 from copy import copy
 
 from vlsi_floorplant import PyFloorPlantProblem
+
+
 def to_numpy_array(l: list[int]):
     return np.asarray([np.float32(v) for v in l])
 
@@ -32,18 +34,21 @@ def to_positions(l: list[int]) -> list[int]:
 
 class FloorPlantEnv(gym.Env):
 
+    ini_fpp = PyFloorPlantProblem = None
     fpp: PyFloorPlantProblem = None
     best_fpp: PyFloorPlantProblem = None
-    current_fpp: PyFloorPlantProblem = None
+
+    rand_ini_fpp: PyFloorPlantProblem = None
+    rand_fpp: PyFloorPlantProblem = None
+    rand_best_fpp: PyFloorPlantProblem = None
+
+    best_obj: float
+    ini_obj: float
+    previous_obj: float
+
     n: int
-    best_obj: int = -1
-    previous_obj: int = -1
-    obj: int = -1
     max_steps: int = 5
     steps: int = 0
-    sa_temp: float = 100
-    sa_alpha: float = 0.999
-    since_previous_upgrade: int = 0
 
     def __init__(self, n: int):
         self.n = n
@@ -63,12 +68,8 @@ class FloorPlantEnv(gym.Env):
             # Y
             spaces.Tuple([spaces.Discrete(self.n) for _ in range(self.n)]),
         ])
-        self.seed()
         self.reset()
         super().__init__()
-
-    def to_one_hot_encoding(self, t: tuple[int]) -> list[list[int]]:
-        return [[int(v==i) for i in range(self.n)] for v in  t]
 
     def flattened_observation(self) -> np.array:
         observation = []
@@ -76,33 +77,30 @@ class FloorPlantEnv(gym.Env):
             observation.extend(np.ndarray.flatten(np.array(list(ob))))
         return np.array(observation)
 
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
 
     def reset(self):
-
-        if not self.best_fpp:
-            self.best_fpp = PyFloorPlantProblem(self.n)
-            self.current_fpp = self.best_fpp.copy()
+        if not self.fpp:
+            self.ini_fpp = PyFloorPlantProblem(self.n)
+            self.best_fpp = self.ini_fpp.copy()
+            self.best_obj = self.best_fpp.get_current_sp_objective()
+            self.ini_obj = self.best_obj
             self.fpp = self.best_fpp.copy()
 
-        sa_cost = (-self.obj) - (-self.best_obj) + 10e-8
-        if sa_cost < 0:
-            self.best_fpp = self.fpp.copy()
-            # self.current_fpp = self.best_fpp.copy()
-        elif np.exp(sa_cost/min(-self.sa_temp, -1e-8)) > np.random.rand():
-            pass
-            # self.current_fpp = self.fpp.copy()
-        if sa_cost > -self.best_obj * 0.2:
-            pass
-            # self.current_fpp = self.best_fpp.copy()
+            self.sa_fpp = self.fpp.copy()
+            print("Simulated Annealing...")
+            self.sa_fpp.apply_simulated_annealing(100, 1.0-1e-4)
+            print("Simulated Annealing result: ", self.sa_fpp.get_current_sp_objective())
+            self.sa_fpp.visualize()
 
-        self.fpp = self.current_fpp.copy()
-        self.fpp.shuffle_sp()
+            self.rand_ini_fpp = self.fpp.copy()
+            self.rand_best_fpp = self.fpp.copy()
 
-        self.best_obj = -self.best_fpp.get_current_sp_objective()
-        self.obj = -self.fpp.get_current_sp_objective()
+        self.fpp = self.ini_fpp.copy()
+        self.rand_fpp = self.rand_ini_fpp.copy()
+
+#         self.fpp.shuffle_sp()
+#         self.rand_fpp.shuffle_sp()
+        self.previous_obj = self.fpp.get_current_sp_objective()
 
         self.steps = 0
 
@@ -110,64 +108,45 @@ class FloorPlantEnv(gym.Env):
             tuple(to_positions(self.fpp.x())),
             tuple(to_positions(self.fpp.y())),
         ])
-        self.sa_temp = self.sa_temp * self.sa_alpha
-        self.since_previous_upgrade += 1
         assert self.observation_space.contains(self.observation)
 
-    def think_step(self, action: tuple[int, int, int]):
+    def step(self, action: tuple[int, int, int]):
         assert self.action_space.contains(action)
-        #print("Taking action: ", action)
         i, j, move = action
-
         self.steps += 1
-        if move == 9 or self.steps > self.max_steps:
-            obj_diff = self.obj - self.best_obj
-            # if obj_diff < 0:
-            #    obj_diff = 0
-            return self.observation, max(0, self.obj + self.current_fpp.get_current_sp_objective()), True, {}
 
         if i >= self.n or j >= self.n or i == j:
-            return self.observation, 0, False, {}
+            print("Stop!")
+            print(i, j)
+            return self.observation, -1, False, {}
 
-        self.previous_obj = self.obj
-        self.obj = -self.fpp.apply_sp_move(i, j, move)
+        previous_obj = self.fpp.get_current_sp_objective()
+        if move < 9:
+            self.fpp.apply_sp_move(i, j, move)
+
+            first_choice, second_choice = np.random.choice(self.n, 2, replace=False)
+            self.rand_fpp.apply_sp_move(first_choice, second_choice, random.randint(0, 8))
+        elif move == 9:
+            pass
+#         self.fpp.apply_simulated_annealing(.11, 1.0-1e-3)
+#         self.rand_fpp.apply_simulated_annealing(.11, 1.0-1e-3)
+
+        obj = self.fpp.get_current_sp_objective()
+        rand_obj = self.rand_fpp.get_current_sp_objective()
+
+        if obj < self.best_obj:
+           self.best_fpp = self.fpp.copy()
+           self.best_obj = obj
+
+        if rand_obj < self.rand_best_fpp.get_current_sp_objective():
+            self.rand_best_fpp = self.rand_fpp.copy()
 
         self.observation = tuple([
             tuple(to_positions(self.fpp.x())),
             tuple(to_positions(self.fpp.y())),
         ])
         assert self.observation_space.contains(self.observation)
-
-        return self.observation, 0, False, {}
-
-    def step(self, action: tuple[int, int, int]):
-        assert self.action_space.contains(action)
-        #print("Taking action: ", action)
-        i, j, move = action
-
-        self.steps += 1
-        if move == 9 or self.steps > self.max_steps:
-            return self.observation, 0, True, {}
-
-        if i >= self.n or j >= self.n or i == j:
-            return self.observation, 0, False, {}
-
-        self.current_fpp.apply_sp_move(i, j, move)
-
-        return self.observation, 0, False, {}
+        return self.observation, -obj/self.ini_obj, move == 9 or self.steps > self.max_steps, {}
 
     def render(self):
         self.fpp.visualize()
-
-if __name__ == "__main__":
-    fpe = FloorPlantEnv(10)
-    print(fpe.fpp.connected_to)
-    print(fpe.observation)
-    print(fpe.fpp.visualize())
-    print(fpe.step((6, 9, 2))[1])
-    print(fpe.fpp.visualize())
-    print(fpe.step((0, 1, 9))[1])
-    print(fpe.fpp.visualize())
-
-
-

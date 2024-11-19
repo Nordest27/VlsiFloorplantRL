@@ -6,11 +6,13 @@ pub fn simulated_annealing(
     temp: f32,
     temp_min: f32,
     alpha: f32,
-    area_importance: f32
+    area_importance: f32,
+    enshitify: bool
 ) -> f32 {
     //println!("Alpha {}", alpha);
     assert!(alpha < 1.0 && alpha > 0.0);
     let mut best_objective = fpp.get_wire_length_estimate_and_area(&fpp.best_sp);
+    
     let initial_objective = best_objective.clone();
     //println!("Initial solution: wire length: {}, area {}",
     //         best_objective.0, best_objective.1);
