@@ -4,26 +4,46 @@ import tensorflow as tf
 from tensorflow import keras, GradientTape
 import random
 from floorplant_gym_env import FloorPlantEnv
+from tensorflow.keras.layers import MultiHeadAttention, LayerNormalization, Dense, Dropout, Lambda
 
 # Initialize environment
-env = FloorPlantEnv(5)
+env = FloorPlantEnv(30)
 n_moves = 9
 
 # Define model parameters
-hidden_nodes = 2**5
+hidden_nodes = 2**9
 
-# Actor network
-actor_input_layer = keras.layers.Input((env.n + env.n,))
-actor_hidden_layer = keras.layers.Embedding(env.n, int(np.ceil(np.log2(env.n))))(actor_input_layer)
-actor_hidden_layer = keras.layers.Flatten()(actor_hidden_layer)
-actor_hidden_layer = keras.layers.LeakyReLU(negative_slope=0.1)(keras.layers.Dense(hidden_nodes)(actor_hidden_layer))
-actor_hidden_layer = keras.layers.LeakyReLU(negative_slope=0.1)(keras.layers.Dense(hidden_nodes)(actor_hidden_layer))
-actor_hidden_layer = keras.layers.Dense(hidden_nodes, activation="tanh")(actor_hidden_layer)
+# Actor network with attention
+actor_input_layer = keras.layers.Input((env.n + env.n,))  # Input shape
+actor_embedding = keras.layers.Embedding(input_dim=env.n, output_dim=int(np.ceil(np.log2(env.n))))(actor_input_layer)
+actor_flatten = keras.layers.Flatten()(actor_embedding)
 
-wfa = keras.layers.Dense(env.n, activation="softmax")(actor_hidden_layer)
-wsa = keras.layers.Dense(env.n, activation="softmax")(actor_hidden_layer)
-wma = keras.layers.Dense(n_moves, activation="softmax")(actor_hidden_layer)
+# Reshape to (batch_size, seq_len, feature_dim) for attention
+reshaped_input = Lambda(lambda x: tf.expand_dims(x, axis=1))(actor_flatten)
 
+# Apply multi-head attention
+attention_output = MultiHeadAttention(num_heads=4, key_dim=32)(
+    query=reshaped_input, key=reshaped_input, value=reshaped_input
+)
+
+# Normalize and add dropout
+attention_output = LayerNormalization()(attention_output)
+attention_output = Dropout(0.1)(attention_output)
+
+# Flatten for dense layers
+attention_flattened = tf.keras.layers.Flatten()(attention_output)
+
+# Dense layers
+actor_hidden_layer = tf.keras.layers.LeakyReLU(negative_slope=0.1)(Dense(hidden_nodes)(attention_flattened))
+actor_hidden_layer = tf.keras.layers.LeakyReLU(negative_slope=0.1)(Dense(hidden_nodes)(actor_hidden_layer))
+actor_hidden_layer = Dense(hidden_nodes, activation="tanh")(actor_hidden_layer)
+
+# Outputs
+wfa = Dense(env.n, activation="softmax")(actor_hidden_layer)
+wsa = Dense(env.n, activation="softmax")(actor_hidden_layer)
+wma = Dense(n_moves, activation="softmax")(actor_hidden_layer)
+
+# Compile actor model
 actor = keras.Model(inputs=actor_input_layer, outputs=[wfa, wsa, wma])
 
 # Critic network
@@ -37,16 +57,16 @@ critic_output = keras.layers.Dense(1)(critic_hidden_layer)
 critic = keras.Model(inputs=critic_input_layer, outputs=critic_output)
 
 # Training parameters
-search_epsilon = 0.1
+search_epsilon = 0.01
 replay_buffer = deque(maxlen=10000)
-batch_size = 5
+batch_size = 10
 gamma = 0.99
 entropy_coefficient = 0.01
 regularization_strength = 1e-4
-initial_actor_lr = 1e-2
-initial_critic_lr = 1e-2
-min_actor_lr = 1e-3
-min_critic_lr = 1e-3
+initial_actor_lr = 1e-3
+initial_critic_lr = 1e-3
+min_actor_lr = 1e-4
+min_critic_lr = 1e-4
 lr_decay_rate = 0.995
 actor_optimizer = keras.optimizers.Adam(learning_rate=initial_actor_lr)
 critic_optimizer = keras.optimizers.Adam(learning_rate=initial_critic_lr)
@@ -120,7 +140,7 @@ for episode in range(num_episodes):
                 critic_values = tf.squeeze(critic(states), axis=-1)
                 critic_next_values = tf.squeeze(critic(next_states), axis=-1)
                 target_values = rewards + gamma * critic_next_values * (1.0 - dones)
-                critic_loss = tf.reduce_mean((target_values - critic_values) ** 2)
+                critic_loss = tf.reduce_mean((tf.math.maximum(target_values, critic_values) - critic_values) ** 2)
             critic_grads = tape.gradient(critic_loss, critic.trainable_variables)
             critic_optimizer.apply_gradients(zip(critic_grads, critic.trainable_variables))
 

@@ -16,12 +16,20 @@ import gym
 from floorplant_gym_env import FloorPlantEnv
 import numpy as np
 
+from numpy.random import normal
+def add_noise(model):
+    weights = model.get_weights()
+    for layer in weights:
+        noise = normal(loc=0.0, scale=.1, size=layer.shape)
+        layer += noise
+    model.set_weights(weights)
+
 
 # Create the CartPole Environment
-env = FloorPlantEnv(20)
-n_moves = 3
+env = FloorPlantEnv(30)
+n_moves = 9
 
-hidden_nodes = 2**9
+hidden_nodes = 2**11
 
 # Define the actor and critic networks
 actor_input_layer = keras.layers.Input((env.n + env.n,))
@@ -50,14 +58,14 @@ critic_output = keras.layers.Dense(1)(critic_hidden_layer)
 critic = keras.Model(inputs=critic_input_layer, outputs=critic_output)
 
 # Define optimizer and loss functions
-actor_optimizer = keras.optimizers.Adam(learning_rate=1e-4)
-critic_optimizer = keras.optimizers.Adam(learning_rate=1e-3)
+actor_optimizer = keras.optimizers.Adam(learning_rate=1e-5)
+critic_optimizer = keras.optimizers.Adam(learning_rate=1e-4)
 
 
 search_epsilon = 1.0
 
 # Main training loop
-num_episodes = 10000
+num_episodes = 1000000
 eps = np.finfo(np.float32).eps.item()
 action_probs_history = []
 critic_value_history = []
@@ -95,24 +103,36 @@ for episode in range(num_episodes):
 #        env.rand_ini_fpp = env.rand_best_fpp.copy()
 
     with GradientTape(persistent=True) as tape:
-        if episode_count % 100 == 0:
-#             search_epsilon = 0.5
+        if episode_count % 10 == 0:
+
+            search_epsilon = 0.01
             print("Simulated Annealing solution:", env.sa_fpp.get_current_sp_objective())
             env.sa_fpp.visualize()
             env.best_fpp.visualize()
+
             env.reset()
             pass
-#             first_choice = np.random.choice(env.n, p=wfp.numpy()[0])
-#             wsp_dist = wsp.numpy()[0]
-#             wsp_dist[first_choice] = 0
-#             wsp_dist += eps
-#             wsp_dist /= sum(wsp_dist)
-#             second_choice = np.random.choice(env.n, p=wsp_dist)
-#             move = np.random.choice(n_moves, p=wmp.numpy()[0])
-#
-#             env.step((first_choice, second_choice, move))
-#             env.ini_fpp = env.fpp
-#             env.rand_ini_fpp = env.rand_fpp
+            inp = keras.ops.expand_dims(
+                keras.ops.convert_to_tensor(env.flattened_observation()), 0
+            )
+            wfp, wsp, wmp = actor(inp)
+
+            first_choice = np.random.choice(env.n, p=wfp.numpy()[0])
+            wsp_dist = wsp.numpy()[0]
+            wsp_dist[first_choice] = 0
+            wsp_dist += eps
+            wsp_dist /= sum(wsp_dist)
+            second_choice = np.random.choice(env.n, p=wsp_dist)
+            move = np.random.choice(n_moves, p=wmp.numpy()[0])
+
+            env.step((first_choice, second_choice, move), just_step=True)
+            env.ini_fpp = env.fpp
+            env.rand_ini_fpp = env.rand_fpp
+#             env.ini_fpp = env.best_fpp.copy()
+#             env.rand_ini_fpp = env.rand_best_fpp.copy()
+            add_noise(actor)
+
+
 
         env.reset()
         i = 0
@@ -160,8 +180,8 @@ for episode in range(num_episodes):
             if episode_count % 100 == 99:
                 print(f"Action taken (fc: {first_choice}, sc: {second_choice}, m: {move}), "
                       f"wfp: {wfp[0, first_choice]}, wsp: {wsp[0, second_choice]}, wmp: {wmp[0, move]}")
-                print("Previous")
-                env.fpp.visualize()
+#                 print("Previous")
+#                 env.fpp.visualize()
 
             # Apply the sampled action in our environment
             _, reward, done, _= env.step((first_choice, second_choice, move))
@@ -182,7 +202,7 @@ for episode in range(num_episodes):
 
             # Compute critic loss
             advantage = reward + (1.0 - done) * gamma * critic_next_state_value - critic_value
-            critic_loss = advantage**2  # Original loss term
+            critic_loss = advantage**2*int(advantage > 0)  # Original loss term
             critic_losses.append(critic_loss)
 #
 #             # Add L2 regularization
@@ -191,15 +211,15 @@ for episode in range(num_episodes):
 #             )
 #             critic_loss += regularization_loss  # Combine the original loss with the regularization term
             # Regularize to encourage exploration
-            entropy_loss = -regularization_strength * (
-                reduce_sum(wfp * action_probs_history[-1][0]) +
-                reduce_sum(wsp * action_probs_history[-1][1]) +
-                reduce_sum(wmp * action_probs_history[-1][2])
+            entropy_loss = (
+                -regularization_strength * reduce_sum(wfp * action_probs_history[-1][0]),
+                -regularization_strength * reduce_sum(wsp * action_probs_history[-1][1]),
+                -regularization_strength * reduce_sum(wmp * action_probs_history[-1][2])
             )
 
-            actor_losses[0].append(-action_probs_history[-1][0] * advantage + entropy_loss)
-            actor_losses[1].append(-action_probs_history[-1][1] * advantage + entropy_loss)
-            actor_losses[2].append(-action_probs_history[-1][2] * advantage + entropy_loss)
+            actor_losses[0].append(-action_probs_history[-1][0] * advantage + entropy_loss[0])
+            actor_losses[1].append(-action_probs_history[-1][1] * advantage + entropy_loss[1])
+            actor_losses[2].append(-action_probs_history[-1][2] * advantage + entropy_loss[2])
 
 #             if random.random() < 0.98:
 #                 env.steps -= 1
@@ -212,10 +232,10 @@ for episode in range(num_episodes):
                 actor.trainable_variables)
             actor_optimizer.apply_gradients(zip(actor_grads, actor.trainable_variables))
             if episode_count % 100 == 99:
-                print(f"After, state Q: {critic_value}, next state Q: {critic_next_state_value}, advantage {advantage}, "
+                print(f"After, state V: {critic_value}, next state V: {critic_next_state_value}, advantage {advantage}, "
                       f"Actor losses {(actor_losses[0][-1], actor_losses[1][-1], actor_losses[2][-1])}"
                 )
-                env.fpp.visualize()
+#                 env.fpp.visualize()
             i += 1
             if done:
                 break
@@ -291,6 +311,7 @@ for episode in range(num_episodes):
             "Search epsilon: {:.2f}, "
             "Rand best obj: {:.2f}, "
             "Best obj {:.2f}, "
+            "Ini obj {:.2f}, "
             "running reward: {:.2f}, "
             "critic values: {:.2f}, "
             "critic error: {:.2f}, "
@@ -303,6 +324,7 @@ for episode in range(num_episodes):
             search_epsilon,
             env.rand_best_fpp.get_current_sp_objective(),
             env.best_obj,
+            env.ini_fpp.get_current_sp_objective(),
             running_reward,
             np.mean(critic_value_history),
             np.mean(critic_losses),
