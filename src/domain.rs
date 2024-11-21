@@ -349,7 +349,7 @@ impl FloorPlantProblem {
         width + height
     }
 
-    pub fn get_wire_length_estimate_and_area(&self, sp: &SequencePair) -> (f32, f32) {
+    pub fn get_wire_length_estimate_and_area(&self, sp: &SequencePair, enshitify: bool) -> (f32, f32) {
         let (width_offsets, full_width) = self.get_base_widths(sp);
         let (height_offsets, full_height) = self.get_base_heights(sp);
         let max_heights = self.get_max_heights();
@@ -383,11 +383,12 @@ impl FloorPlantProblem {
             }
         }
         let area = (full_width * full_height) as f32 + penalize_touching_sides;
-        (wire_length_estimate, area)
+        if enshitify { return (-wire_length_estimate, -area)}
+        else { return (wire_length_estimate, area) }
     }
 
     pub fn get_random_sp_neighbour_with_obj(
-        &self, sp: &SequencePair, only_swaps: bool
+        &self, sp: &SequencePair, only_swaps: bool, enshitify: bool
     ) -> (SequencePair, (f32, f32)) {
         let n = self.n as usize;
         let which_first = random::<usize>() % n;
@@ -417,7 +418,7 @@ impl FloorPlantProblem {
             y_positions[which_first],
             y_positions[which_second]
         );
-        let obj = self.get_wire_length_estimate_and_area(&new_sp);
+        let obj = self.get_wire_length_estimate_and_area(&new_sp, enshitify);
         (new_sp, obj)
     }
 
@@ -448,7 +449,7 @@ impl FloorPlantProblem {
     }
 
     pub fn get_all_sp_neighbours_with_obj(
-        &self, sp: &SequencePair, only_swaps: bool
+        &self, sp: &SequencePair, only_swaps: bool, enshitify: bool
     ) -> Vec<(SequencePair, (f32, f32))> {
         let n = self.n as usize;
         let mut x_positions = vec![0; n];
@@ -474,7 +475,7 @@ impl FloorPlantProblem {
                         y_positions[i],
                         y_positions[j]
                     );
-                    let obj = self.get_wire_length_estimate_and_area(&new_sp);
+                    let obj = self.get_wire_length_estimate_and_area(&new_sp, enshitify);
                     result.push((new_sp, obj));
                 }
             }

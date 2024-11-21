@@ -15,7 +15,18 @@ pub struct PyFloorPlantProblem {
 impl PyFloorPlantProblem {
     #[new]
     pub fn new(n: usize) -> PyFloorPlantProblem {
-        let fpp = FloorPlantProblem::generate_new(n);
+        let mut fpp = FloorPlantProblem::generate_new(n);
+        simulated_annealing(
+            &mut fpp,
+            100.0,
+            0.1,
+            1.0-1e-4,
+            0.9,
+            true,
+        );
+        let obj = fpp.get_wire_length_estimate_and_area(&fpp.best_sp, false);
+        println!("Initial State {}", obj.0+obj.1);
+        fpp.visualize(&fpp.best_sp);
         PyFloorPlantProblem { fpp }
     }
 
@@ -29,7 +40,8 @@ impl PyFloorPlantProblem {
             temp,
             0.1,
             alpha,
-            0.5
+            0.5,
+            false
         );
     }
 
@@ -46,7 +58,7 @@ impl PyFloorPlantProblem {
     }
 
     pub fn get_current_sp_objective(&self) -> PyResult<f32> {
-        let aux_obj = self.fpp.get_wire_length_estimate_and_area(&self.fpp.best_sp);
+        let aux_obj = self.fpp.get_wire_length_estimate_and_area(&self.fpp.best_sp, false);
         Ok(aux_obj.0 + aux_obj.1)
     }
 
@@ -92,7 +104,7 @@ impl PyFloorPlantProblem {
                 y_positions[i],
                 y_positions[j]
             );
-            let aux_obj = self.fpp.get_wire_length_estimate_and_area(&self.fpp.best_sp);
+            let aux_obj = self.fpp.get_wire_length_estimate_and_area(&self.fpp.best_sp, false);
             obj = aux_obj.0 + aux_obj.1;
         }
         Ok(obj)

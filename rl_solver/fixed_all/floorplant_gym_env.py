@@ -88,7 +88,7 @@ class FloorPlantEnv(gym.Env):
 
             self.sa_fpp = self.fpp.copy()
             print("Simulated Annealing...")
-            self.sa_fpp.apply_simulated_annealing(100, 1.0-1e-5)
+            self.sa_fpp.apply_simulated_annealing(100, 1.0-1e-4)
             print("Simulated Annealing result: ", self.sa_fpp.get_current_sp_objective())
             self.sa_fpp.visualize()
 
@@ -126,11 +126,11 @@ class FloorPlantEnv(gym.Env):
 
             first_choice, second_choice = np.random.choice(self.n, 2, replace=False)
             self.rand_fpp.apply_sp_move(first_choice, second_choice, random.randint(0, 8))
-#         elif move == 9:
+        # elif move == 9:
         if not just_step:
             pass
-#             self.fpp.apply_simulated_annealing(.2, 1.0-1e-3)
-#             self.rand_fpp.apply_simulated_annealing(.2, 1.0-1e-3)
+            self.fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
+            self.rand_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
 
         obj = self.fpp.get_current_sp_objective()
         rand_obj = self.rand_fpp.get_current_sp_objective()
@@ -147,7 +147,7 @@ class FloorPlantEnv(gym.Env):
             tuple((self.fpp.y())),
         ])
         assert self.observation_space.contains(self.observation)
-        return self.observation, 100*(previous_obj-obj)/self.ini_obj, move == 9 or self.steps > self.max_steps, {}
+        return self.observation, (previous_obj-obj)/self.ini_obj, move == 9 or self.steps > self.max_steps, {}
 
     def render(self):
         self.fpp.visualize()

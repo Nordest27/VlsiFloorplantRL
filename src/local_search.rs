@@ -11,7 +11,7 @@ pub fn simulated_annealing(
 ) -> f32 {
     //println!("Alpha {}", alpha);
     assert!(alpha < 1.0 && alpha > 0.0);
-    let mut best_objective = fpp.get_wire_length_estimate_and_area(&fpp.best_sp);
+    let mut best_objective = fpp.get_wire_length_estimate_and_area(&fpp.best_sp, enshitify);
     
     let initial_objective = best_objective.clone();
     //println!("Initial solution: wire length: {}, area {}",
@@ -24,7 +24,7 @@ pub fn simulated_annealing(
     let mut evaluations = 0;
     while temp > temp_min {
         evaluations += 1;
-        let (sp, new_objective) = fpp.get_random_sp_neighbour_with_obj(&current_sp, false);
+        let (sp, new_objective) = fpp.get_random_sp_neighbour_with_obj(&current_sp, false, enshitify);
         let cost = (1.0-area_importance)*new_objective.0 + area_importance * new_objective.1
                    - (1.0-area_importance)* best_objective.0 - area_importance* best_objective.1;
         if cost < -0.05 {
@@ -68,7 +68,7 @@ pub fn hill_climbing(
     area_importance: f32,
     max_steps: i32
 ) -> f32 {
-    let mut best_objective = fpp.get_wire_length_estimate_and_area(&fpp.best_sp);
+    let mut best_objective = fpp.get_wire_length_estimate_and_area(&fpp.best_sp, false);
     let initial_objective = best_objective.clone();
     /*println!("Initial solution: wire length: {}, area {}",
              best_objective.0, best_objective.1);
@@ -78,7 +78,7 @@ pub fn hill_climbing(
     loop {
         let mut best_sp = fpp.best_sp.clone();
         let mut better_found = false;
-        for (sp, new_objective) in fpp.get_all_sp_neighbours_with_obj(&fpp.best_sp, false) {
+        for (sp, new_objective) in fpp.get_all_sp_neighbours_with_obj(&fpp.best_sp, false, false) {
             evaluations += 1;
             let cost = (1.0 - area_importance) * new_objective.0 + area_importance * new_objective.1
                 - (1.0 - area_importance) * best_objective.0 - area_importance * best_objective.1;
@@ -119,7 +119,7 @@ pub fn monte_carlo_estimation_search(
     n_moves: usize,
     should_see: f32,
 ) -> (Vec<f32>, SequencePair, f32) {
-    let initial_objective = fpp.get_wire_length_estimate_and_area(&fpp.best_sp);
+    let initial_objective = fpp.get_wire_length_estimate_and_area(&fpp.best_sp, false);
     let init_obj = initial_objective.0 + initial_objective.1;
     let mut should_see = should_see;
     if should_see < 0.0 { should_see = init_obj - 1.0 }
@@ -142,7 +142,7 @@ pub fn monte_carlo_estimation_search(
                 }
                 sp = aux_sp
             }
-            let obj = fpp.get_wire_length_estimate_and_area(&sp);
+            let obj = fpp.get_wire_length_estimate_and_area(&sp, false);
             let obj_sum = obj.0 + obj.1;
             if best_obj > obj_sum {
                 best_obj = obj_sum;
@@ -176,12 +176,12 @@ pub fn monte_carlo_estimation_search(
         //return (vec![], fpp.best_sp.clone(), best_obj)
     }
     let mut aux_obj = fpp.get_wire_length_estimate_and_area(
-        &init_moves[best_init_move_index]
+        &init_moves[best_init_move_index], false
     );
     let mut best_move_obj = aux_obj.0 + aux_obj.1;
     for i in 0..init_moves_len {
         if init_move_value_estimations[i] == init_move_value_estimations[best_init_move_index] {
-            aux_obj = fpp.get_wire_length_estimate_and_area(&init_moves[i]);
+            aux_obj = fpp.get_wire_length_estimate_and_area(&init_moves[i], false);
             let other_obj = aux_obj.0+aux_obj.1;
             if best_move_obj > other_obj {
                 best_init_move_index = i;
