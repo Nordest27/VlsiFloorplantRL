@@ -67,6 +67,11 @@ impl PyFloorPlantProblem {
     pub fn widths(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.min_widths.clone()) }
     pub fn heights(&self) -> PyResult<Vec<i32>> { Ok(self.fpp.get_max_heights()) }
     pub fn connected_to(&self) -> PyResult<Vec<Vec<bool>>> { Ok(self.fpp.connected_to.clone()) }
+    
+    pub fn weighted_connections(&self) -> PyResult<Vec<Vec<f32>>> { 
+        Ok(self.fpp.get_weighted_connections(&self.fpp.best_sp)) 
+    }
+    
     pub fn offset_heights(&self) -> PyResult<Vec<i32>> {
         Ok(self.fpp.get_base_heights(&self.fpp.best_sp).0)
     }

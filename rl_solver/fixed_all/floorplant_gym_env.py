@@ -47,7 +47,7 @@ class FloorPlantEnv(gym.Env):
     previous_obj: float
 
     n: int
-    max_steps: int = 5
+    max_steps: int = 50
     steps: int = 0
 
     def __init__(self, n: int):
@@ -67,15 +67,32 @@ class FloorPlantEnv(gym.Env):
             spaces.Tuple([spaces.Discrete(self.n) for _ in range(self.n)]),
             # Y
             spaces.Tuple([spaces.Discrete(self.n) for _ in range(self.n)]),
+            # offset widths
+            spaces.Box(low=0, high=np.inf, shape=(n,)),
+            # offset heights
+            spaces.Box(low=0, high=np.inf, shape=(n,)),
+            # weighted_connections
+            spaces.Tuple([
+                spaces.Box(low=0, high=np.inf, shape=(self.n-i-1,))
+                for i in range(self.n-1)
+            ]),
         ])
         self.reset()
         super().__init__()
 
-    def flattened_observation(self) -> np.array:
-        observation = []
-        for ob in self.observation:
-            observation.extend(np.ndarray.flatten(np.array(list(ob))))
-        return np.array(observation)
+    def flattened_observation(self) -> tuple[np.array, np.array]:
+        xy = []
+        xy.extend(np.ndarray.flatten(np.array(list(self.observation[0]))))
+        xy.extend(np.ndarray.flatten(np.array(list(self.observation[1]))))
+
+        reals = []
+        reals.extend(np.ndarray.flatten(np.array(list(self.observation[2]))))
+        reals.extend(np.ndarray.flatten(np.array(list(self.observation[3]))))
+        for row in self.observation[4]:
+            reals.extend(np.ndarray.flatten(np.array(list(row))))
+#         print(np.array(xy))
+#         print(np.array(reals))
+        return np.array(xy), np.array(reals)
 
 
     def reset(self):
@@ -107,11 +124,15 @@ class FloorPlantEnv(gym.Env):
         self.observation = tuple([
             tuple((self.fpp.x())),
             tuple((self.fpp.y())),
+            tuple(self.fpp.offset_widths()),
+            tuple(self.fpp.offset_heights()),
+            tuple(tuple(r) for r in self.fpp.weighted_connections())
         ])
         assert self.observation_space.contains(self.observation)
 
     def step(self, action: tuple[int, int, int], just_step: bool = False):
         assert self.action_space.contains(action)
+
         i, j, move = action
         self.steps += 1
 
@@ -129,8 +150,8 @@ class FloorPlantEnv(gym.Env):
         # elif move == 9:
         if not just_step:
             pass
-            self.fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
-            self.rand_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
+#             self.fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
+#             self.rand_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
 
         obj = self.fpp.get_current_sp_objective()
         rand_obj = self.rand_fpp.get_current_sp_objective()
@@ -145,9 +166,12 @@ class FloorPlantEnv(gym.Env):
         self.observation = tuple([
             tuple((self.fpp.x())),
             tuple((self.fpp.y())),
+            tuple(self.fpp.offset_widths()),
+            tuple(self.fpp.offset_heights()),
+            tuple(tuple(r) for r in self.fpp.weighted_connections())
         ])
         assert self.observation_space.contains(self.observation)
-        return self.observation, (previous_obj-obj)/self.ini_obj, move == 9 or self.steps > self.max_steps, {}
+        return self.observation, (self.previous_obj-obj)/self.ini_obj, move == 9 or self.steps > self.max_steps, {}
 
     def render(self):
         self.fpp.visualize()

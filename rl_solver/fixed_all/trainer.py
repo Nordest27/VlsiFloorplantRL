@@ -27,38 +27,47 @@ def add_noise(model):
 
 # Create the CartPole Environment
 env = FloorPlantEnv(40)
-n_moves = 9
+weighted_connections_size = env.n*(env.n-1)//2
+
+n_moves = 3
 
 hidden_nodes = 2**9
 
 # Define the actor and critic networks
 def create_model(output, actor: bool, extra_inps: int = 0):
-    input_layer = keras.layers.Input((env.n + env.n + extra_inps,))
+    embeds_input_layer = keras.layers.Input((env.n*2 + extra_inps,))
 
-    hidden_layer = keras.layers.Embedding(env.n, int(np.ceil(np.log2(env.n))))(input_layer)
-    hidden_layer = keras.layers.Flatten()(hidden_layer)
-    hidden_layer = keras.layers.LeakyReLU(negative_slope=0.1)(keras.layers.Dense(hidden_nodes)(hidden_layer))
-    hidden_layer = keras.layers.LeakyReLU(negative_slope=0.1)(keras.layers.Dense(hidden_nodes)(hidden_layer/8))
-    hidden_layer = keras.layers.LeakyReLU(negative_slope=0.1)(keras.layers.Dense(hidden_nodes)(hidden_layer))
+    embeds_hidden_layer = keras.layers.Embedding(env.n, int(np.ceil(np.log2(env.n))))(embeds_input_layer)
+    embeds_hidden_layer = keras.layers.Flatten()(embeds_hidden_layer)
+
+    reals_input_layer = keras.layers.Input((env.n*2 + weighted_connections_size,))
+
+    hidden_layer = keras.layers.Concatenate()([embeds_hidden_layer, reals_input_layer])
+    hidden_layer = keras.layers.LeakyReLU(negative_slope=0.01)(keras.layers.Dense(hidden_nodes)(hidden_layer))
+#     hidden_layer = keras.layers.LeakyReLU(negative_slope=0.1)(keras.layers.Dense(env.n)(hidden_layer))
+    hidden_layer = keras.layers.LeakyReLU(negative_slope=0.01)(keras.layers.Dense(hidden_nodes)(hidden_layer))
     if actor:
         hidden_layer = keras.layers.Dense(hidden_nodes, activation="tanh")(hidden_layer)
 
-    return keras.Model(inputs=input_layer, outputs=output(hidden_layer))
+    return keras.Model(inputs={"xy": embeds_input_layer, "weights": reals_input_layer}, outputs=output(hidden_layer))
 
 actor_wfa = create_model(keras.layers.Dense(env.n, activation='softmax'), True)
+# mask_wfa = create_model(keras.layers.Dense(env.n, activation='sigmoid'), True)
 actor_wsa = create_model(keras.layers.Dense(env.n, activation='softmax'), True, extra_inps=1)
+# mask_wsa = create_model(keras.layers.Dense(env.n, activation='sigmoid'), True, extra_inps=1)
 actor_wma = create_model(keras.layers.Dense(n_moves, activation='softmax'), True, extra_inps=2)
-
+# mask_wma = create_model(keras.layers.Dense(env.n, activation='sigmoid'), True, extra_inps=1)
+# actor_simple = create_model(keras.layers.Dense(2, activation='softmax'), True)
 critic =  create_model(keras.layers.Dense(1), False)
 
 # Define optimizer and loss functions
 actor_wfa_optimizer = keras.optimizers.Adam(learning_rate=1e-5)
 actor_wsa_optimizer = keras.optimizers.Adam(learning_rate=1e-5)
 actor_wma_optimizer = keras.optimizers.Adam(learning_rate=1e-5)
-critic_optimizer = keras.optimizers.Adam(learning_rate=1e-4)
+critic_optimizer = keras.optimizers.Adam(learning_rate=1e-5)
 
 
-search_epsilon = 0.001
+search_epsilon = 0.5
 
 # Main training loop
 num_episodes = 1000000
@@ -80,7 +89,6 @@ for episode in range(num_episodes):
     # print("New Env state")
     # for v in env.observation:
         #print(v)
-    state = env.flattened_observation()
     # env.fpp.visualize()
     max_episode_reward = -np.inf
     episode_reward = 0
@@ -93,48 +101,46 @@ for episode in range(num_episodes):
 #     if episode%100 == 0: #np.mean(np.abs(actor_losses)) < 0.05 and search_epsilon < 0.05:
 # #        print("Actor stagnated, assigning best_sp")
 # #        search_epsilon = max((0.999**episode)*0.5, 0.1)
-#        env.ini_fpp = env.best_fpp.copy()
-#        env.rand_ini_fpp = env.rand_best_fpp.copy()
     if episode % 100 == 99:
-        search_epsilon = 0.10
+        search_epsilon = 0.50
         print("Simulated Annealing solution:", env.sa_fpp.get_current_sp_objective())
         env.sa_fpp.visualize()
         env.best_fpp.visualize()
         pass
-        """
-        env.reset()
-        state = env.flattened_observation()
-        inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state), 0)
-        critic_value = critic(inp)
-
-        wfp = actor_wfa(inp)
-        first_choice = np.random.choice(env.n, p=wfp.numpy()[0])
-        state = np.append(state, first_choice)
-        inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state), 0)
-
-        wsp = actor_wsa(inp)
-        wsp_dist = wsp.numpy()[0]
-        wsp_dist[first_choice] = 0
-        wsp_dist += eps
-        wsp_dist /= sum(wsp_dist)
-        second_choice = np.random.choice(env.n, p=wsp_dist)
-        state = np.append(state, second_choice)
-        inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state), 0)
-
-        wmp = actor_wma(inp)
-        move = np.random.choice(n_moves, p=wmp.numpy()[0])
-
-        env.step((first_choice, second_choice, move), just_step=True)
-        env.ini_fpp = env.fpp
-        env.rand_ini_fpp = env.rand_fpp
-        """
+#         env.reset()
+#         state = env.flattened_observation()
+#         inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state), 0)
+#         critic_value = critic(inp)
+#
+#         wfp = actor_wfa(inp)
+#         first_choice = np.random.choice(env.n, p=wfp.numpy()[0])
+#         state = np.append(state, first_choice)
+#         inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state), 0)
+#
+#         wsp = actor_wsa(inp)
+#         wsp_dist = wsp.numpy()[0]
+#         wsp_dist[first_choice] = 0
+#         wsp_dist += eps
+#         wsp_dist /= sum(wsp_dist)
+#         second_choice = np.random.choice(env.n, p=wsp_dist)
+#         state = np.append(state, second_choice)
+#         inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state), 0)
+#
+#         wmp = actor_wma(inp)
+#         move = np.random.choice(n_moves, p=wmp.numpy()[0])
+#
+#         env.step((first_choice, second_choice, move), just_step=True)
+#         env.ini_fpp = env.fpp
+#         env.rand_ini_fpp = env.rand_fpp
+#         env.ini_fpp = env.best_fpp.copy()
+#         env.rand_ini_fpp = env.rand_best_fpp.copy()
+#         print(f"Action taken (fc: {first_choice}, sc: {second_choice}, m: {move}), "
+#               f"wfp: {wfp[0, first_choice]}, wsp: {wsp[0, second_choice]}, wmp: {wmp[0, move]}")
+#         add_noise(actor_wfa)
+#         add_noise(actor_wsa)
+#         add_noise(actor_wma)
         env.ini_fpp = env.best_fpp.copy()
         env.rand_ini_fpp = env.rand_best_fpp.copy()
-        print(f"Action taken (fc: {first_choice}, sc: {second_choice}, m: {move}), "
-              f"wfp: {wfp[0, first_choice]}, wsp: {wsp[0, second_choice]}, wmp: {wmp[0, move]}")
-        add_noise(actor_wfa)
-        add_noise(actor_wsa)
-        add_noise(actor_wma)
 
     env.reset()
     i = 0
@@ -142,32 +148,33 @@ for episode in range(num_episodes):
         # Predict action probabilities and estimated future rewards
         # from environment state
         with GradientTape(persistent=True) as tape:
-            state = env.flattened_observation()
-            inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state), 0)
-            critic_value = critic(inp)
+            state_xy, state_weights = env.flattened_observation()
+            xy_inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state_xy), 0)
+            weights_inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state_weights), 0)
+            critic_value = critic({"xy": xy_inp, "weights": weights_inp})
 
-            wfp = actor_wfa(inp)
+            wfp = actor_wfa({"xy": xy_inp, "weights": weights_inp})
             first_choice = np.random.choice(env.n, p=wfp.numpy()[0])
-            state = np.append(state, first_choice)
-            inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state), 0)
-            wsp = actor_wsa(inp)
+            state_xy = np.append(state_xy, first_choice)
+            xy_inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state_xy), 0)
+            wsp = actor_wsa({"xy": xy_inp, "weights": weights_inp})
             wsp_dist = wsp.numpy()[0]
             wsp_dist[first_choice] = 0
             wsp_dist += eps
             wsp_dist /= sum(wsp_dist)
             second_choice = np.random.choice(env.n, p=wsp_dist)
-            state = np.append(state, second_choice)
-            inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state), 0)
+            state_xy = np.append(state_xy, second_choice)
+            xy_inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state_xy), 0)
 
-            wmp = actor_wma(inp)
+            wmp = actor_wma({"xy": xy_inp, "weights": weights_inp})
             move = np.random.choice(n_moves, p=wmp.numpy()[0])
 
-            #print(first_choice, second_choice, move)
+#             print(first_choice, second_choice, move)
 
             critic_value_history.append(critic_value[0, 0])
 
             # Sample action from action probability distributions
-            if False and np.random.rand() < search_epsilon:
+            if np.random.rand() < search_epsilon:
                 first_choice, second_choice = np.random.choice(env.n, 2, replace=False)
                 assert first_choice != second_choice
                 move = np.random.choice(n_moves)
@@ -207,10 +214,10 @@ for episode in range(num_episodes):
             # Apply the sampled action in our environment
             _, reward, done, _= env.step((first_choice, second_choice, move))
 
-            inp = keras.ops.expand_dims(
-                keras.ops.convert_to_tensor(env.flattened_observation()), 0
-            )
-            critic_next_state_value = critic(inp)
+            state_xy, state_weights = env.flattened_observation()
+            xy_inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state_xy), 0)
+            weights_inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state_weights), 0)
+            critic_next_state_value = critic({"xy": xy_inp, "weights": weights_inp})
 
             episode_rewards.append(reward)
             episode_reward += reward
@@ -223,7 +230,7 @@ for episode in range(num_episodes):
 
             # Compute critic loss
             advantage = reward + (1.0 - done) * gamma * critic_next_state_value - critic_value
-            critic_loss = advantage**2*int(advantage > 0)  # Original loss term
+            critic_loss = advantage**2*(1.0 if advantage > 0 else 0.1)  # Original loss term
 
             # Add L2 regularization
             """

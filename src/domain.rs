@@ -348,6 +348,35 @@ impl FloorPlantProblem {
         let (_, height) = self.get_base_heights(sp);
         width + height
     }
+    
+    pub fn get_weighted_connections(&self, sp: &SequencePair) -> Vec<Vec<f32>> {
+        let (width_offsets, full_width) = self.get_base_widths(sp);
+        let (height_offsets, full_height) = self.get_base_heights(sp);
+        let max_heights = self.get_max_heights();
+        let n = self.n as usize;
+        let mut centers = vec![(0.0, 0.0); n];
+        for i in 0..n {
+            centers[i] = (
+                width_offsets[i] as f32 + self.min_widths[i] as f32 / 2.0,
+                height_offsets[i] as f32 + max_heights[i] as f32 / 2.0
+            );
+        }
+        let mut wire_length_estimates: Vec<Vec<f32>> = vec![vec![]; n-1];
+        for i in 0..n-1 {
+            for j in i+1..n {
+                if self.connected_to[i][j] {
+                    wire_length_estimates[i].push(
+                        (centers[i].0 - centers[j].0).abs() + 
+                            (centers[i].1 - centers[j].1).abs()
+                    );
+                }
+                else {
+                    wire_length_estimates[i].push(0.0)
+                }
+            }
+        }
+        wire_length_estimates
+    }
 
     pub fn get_wire_length_estimate_and_area(&self, sp: &SequencePair, enshitify: bool) -> (f32, f32) {
         let (width_offsets, full_width) = self.get_base_widths(sp);
@@ -357,8 +386,8 @@ impl FloorPlantProblem {
         let mut centers = vec![(0.0, 0.0); n];
         for i in 0..n {
             centers[i] = (
-                (width_offsets[i] + self.min_widths[i] / 2) as f32,
-                (height_offsets[i] + max_heights[i]) as f32
+                width_offsets[i] as f32 + self.min_widths[i] as f32 / 2.0,
+                height_offsets[i] as f32 + max_heights[i] as f32 / 2.0
             );
         }
         let mut wire_length_estimate: f32 = 0.0;
