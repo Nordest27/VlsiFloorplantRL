@@ -47,7 +47,7 @@ class FloorPlantEnv(gym.Env):
     previous_obj: float
 
     n: int
-    max_steps: int = 50
+    max_steps: int = 5
     steps: int = 0
 
     def __init__(self, n: int):
@@ -115,8 +115,8 @@ class FloorPlantEnv(gym.Env):
         self.fpp = self.ini_fpp.copy()
         self.rand_fpp = self.rand_ini_fpp.copy()
 
-#         self.fpp.shuffle_sp()
-#         self.rand_fpp.shuffle_sp()
+        self.fpp.shuffle_sp()
+        self.rand_fpp.shuffle_sp()
         self.previous_obj = self.fpp.get_current_sp_objective()
 
         self.steps = 0
@@ -135,7 +135,10 @@ class FloorPlantEnv(gym.Env):
 
         i, j, move = action
         self.steps += 1
-
+        if i == self.fpp.x()[0]:
+            return self.observation, 1, self.steps > self.max_steps, {}
+        else:
+            return self.observation, 0, self.steps > self.max_steps, {}
         if i >= self.n or j >= self.n or i == j:
             print("Stop!")
             print(i, j)

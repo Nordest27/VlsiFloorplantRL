@@ -26,30 +26,48 @@ def add_noise(model):
 
 
 # Create the CartPole Environment
-env = FloorPlantEnv(40)
+env = FloorPlantEnv(4)
 weighted_connections_size = env.n*(env.n-1)//2
 
-n_moves = 3
+n_moves = 9
 
-hidden_nodes = 2**9
+hidden_nodes = 2**7
 
 # Define the actor and critic networks
 def create_model(output, actor: bool, extra_inps: int = 0):
-    embeds_input_layer = keras.layers.Input((env.n*2 + extra_inps,))
-
-    embeds_hidden_layer = keras.layers.Embedding(env.n, int(np.ceil(np.log2(env.n))))(embeds_input_layer)
+    # Input for embeddings
+    embeds_input_layer = keras.layers.Input((env.n * 2 + extra_inps,))
+    embeds_hidden_layer = keras.layers.Embedding(env.n, 4)(embeds_input_layer)
     embeds_hidden_layer = keras.layers.Flatten()(embeds_hidden_layer)
 
-    reals_input_layer = keras.layers.Input((env.n*2 + weighted_connections_size,))
+    # Add intermediate layer for embeddings
+    embeds_hidden_layer = keras.layers.Dense(
+        hidden_nodes, activation='relu', name='embed_dense_layer', kernel_initializer='he_normal'
+    )(embeds_hidden_layer)
 
-    hidden_layer = keras.layers.Concatenate()([embeds_hidden_layer, reals_input_layer])
-    hidden_layer = keras.layers.LeakyReLU(negative_slope=0.01)(keras.layers.Dense(hidden_nodes)(hidden_layer))
-#     hidden_layer = keras.layers.LeakyReLU(negative_slope=0.1)(keras.layers.Dense(env.n)(hidden_layer))
-    hidden_layer = keras.layers.LeakyReLU(negative_slope=0.01)(keras.layers.Dense(hidden_nodes)(hidden_layer))
+    # Input for real-valued data
+    reals_input_layer = keras.layers.Input((env.n * 2 + weighted_connections_size,))
+
+    # Add intermediate layer for real-valued inputs
+    reals_hidden_layer = keras.layers.Dense(
+        hidden_nodes, activation='relu', name='reals_dense_layer', kernel_initializer='he_normal'
+    )(reals_input_layer)
+
+    # Combine embeddings and real-valued inputs
+    hidden_layer = keras.layers.Concatenate()([embeds_hidden_layer, reals_hidden_layer])
+
+    # Add additional dense layers after concatenation (optional)
+    hidden_layer = keras.layers.Dense(2*hidden_nodes, activation='relu', name='combined_dense_layer', kernel_initializer='he_normal')(hidden_layer)
+
+    # Optional layers for actor-specific processing
     if actor:
-        hidden_layer = keras.layers.Dense(hidden_nodes, activation="tanh")(hidden_layer)
+        hidden_layer = keras.layers.Dense(2*hidden_nodes, activation='tanh', name='actor_dense_layer', kernel_initializer='he_normal')(hidden_layer)
 
-    return keras.Model(inputs={"xy": embeds_input_layer, "weights": reals_input_layer}, outputs=output(hidden_layer))
+    return keras.Model(
+        inputs={"xy": embeds_input_layer, "weights": reals_input_layer},
+        outputs=output(hidden_layer)
+    )
+
 
 actor_wfa = create_model(keras.layers.Dense(env.n, activation='softmax'), True)
 # mask_wfa = create_model(keras.layers.Dense(env.n, activation='sigmoid'), True)
@@ -102,7 +120,7 @@ for episode in range(num_episodes):
 # #        print("Actor stagnated, assigning best_sp")
 # #        search_epsilon = max((0.999**episode)*0.5, 0.1)
     if episode % 100 == 99:
-        search_epsilon = 0.50
+        search_epsilon = 0.05
         print("Simulated Annealing solution:", env.sa_fpp.get_current_sp_objective())
         env.sa_fpp.visualize()
         env.best_fpp.visualize()
@@ -149,6 +167,7 @@ for episode in range(num_episodes):
         # from environment state
         with GradientTape(persistent=True) as tape:
             state_xy, state_weights = env.flattened_observation()
+            print(state_xy)
             xy_inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state_xy), 0)
             weights_inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state_weights), 0)
             critic_value = critic({"xy": xy_inp, "weights": weights_inp})
@@ -156,6 +175,7 @@ for episode in range(num_episodes):
             wfp = actor_wfa({"xy": xy_inp, "weights": weights_inp})
             first_choice = np.random.choice(env.n, p=wfp.numpy()[0])
             state_xy = np.append(state_xy, first_choice)
+            print(state_xy)
             xy_inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state_xy), 0)
             wsp = actor_wsa({"xy": xy_inp, "weights": weights_inp})
             wsp_dist = wsp.numpy()[0]
@@ -164,6 +184,7 @@ for episode in range(num_episodes):
             wsp_dist /= sum(wsp_dist)
             second_choice = np.random.choice(env.n, p=wsp_dist)
             state_xy = np.append(state_xy, second_choice)
+            print(state_xy)
             xy_inp = keras.ops.expand_dims(keras.ops.convert_to_tensor(state_xy), 0)
 
             wmp = actor_wma({"xy": xy_inp, "weights": weights_inp})
@@ -200,9 +221,9 @@ for episode in range(num_episodes):
             """
 
             action_probs_history.append((
-                keras.ops.log(wfp[0, first_choice] + eps),
-                keras.ops.log(wsp[0, second_choice] + eps),
-                keras.ops.log(wmp[0, move] + eps)
+                keras.ops.log(wfp[0, env.fpp.x()[0]] + eps),
+                keras.ops.log(wsp[0, env.fpp.x()[1]] + eps),
+                keras.ops.log(wmp[0, env.fpp.x()[2]] + eps)
             ))
 
             if episode % 100 == 98:
@@ -226,11 +247,11 @@ for episode in range(num_episodes):
                 episode_reward_index = i
 
             # Define regularization strength (hyperparameter)
-            regularization_strength = 1e-4  # Adjust as needed
+            regularization_strength = 0*1e-4  # Adjust as needed
 
             # Compute critic loss
             advantage = reward + (1.0 - done) * gamma * critic_next_state_value - critic_value
-            critic_loss = advantage**2*(1.0 if advantage > 0 else 0.1)  # Original loss term
+            critic_loss = advantage**2#*(1.0 if advantage > 0 else 0.1)  # Original loss term
 
             # Add L2 regularization
             """
@@ -242,31 +263,32 @@ for episode in range(num_episodes):
             critic_losses.append(critic_loss)
 
             # Regularize to encourage exploration
+            """
             entropy_loss = (
                 -regularization_strength * reduce_sum(wfp * action_probs_history[-1][0]),
                 -regularization_strength * reduce_sum(wsp * action_probs_history[-1][1]),
                 -regularization_strength * reduce_sum(wmp * action_probs_history[-1][2])
             )
-
-            actor_losses[0].append(-action_probs_history[-1][0] * advantage + entropy_loss[0])
-            actor_losses[1].append(-action_probs_history[-1][1] * advantage + entropy_loss[1])
-            actor_losses[2].append(-action_probs_history[-1][2] * advantage + entropy_loss[2])
+            """
+            actor_losses[0].append(-action_probs_history[-1][0] * reward)
+            actor_losses[1].append(-action_probs_history[-1][1] * reward)
+            actor_losses[2].append(-action_probs_history[-1][2] * reward)
 
 #             if random.random() < 0.98:
 #                 env.steps -= 1
 #                 env.fpp = prev_fpp
 
-            critic_grads = tape.gradient(critic_losses[-1], critic.trainable_variables)
-            critic_optimizer.apply_gradients(zip(critic_grads, critic.trainable_variables))
+            #critic_grads = tape.gradient(critic_losses[-1], critic.trainable_variables)
+            #critic_optimizer.apply_gradients(zip(critic_grads, critic.trainable_variables))
 
             actor_wfa_grads = tape.gradient(actor_losses[0][-1], actor_wfa.trainable_variables)
             actor_wfa_optimizer.apply_gradients(zip(actor_wfa_grads, actor_wfa.trainable_variables))
 
-            actor_wsa_grads = tape.gradient(actor_losses[1][-1], actor_wsa.trainable_variables)
-            actor_wsa_optimizer.apply_gradients(zip(actor_wsa_grads, actor_wsa.trainable_variables))
+            #actor_wsa_grads = tape.gradient(actor_losses[1][-1], actor_wsa.trainable_variables)
+            #actor_wsa_optimizer.apply_gradients(zip(actor_wsa_grads, actor_wsa.trainable_variables))
 
-            actor_wma_grads = tape.gradient(actor_losses[2][-1], actor_wma.trainable_variables)
-            actor_wma_optimizer.apply_gradients(zip(actor_wma_grads, actor_wma.trainable_variables))
+            #actor_wma_grads = tape.gradient(actor_losses[2][-1], actor_wma.trainable_variables)
+            #actor_wma_optimizer.apply_gradients(zip(actor_wma_grads, actor_wma.trainable_variables))
 
             if episode % 100 == 98:
                 print(f"After, state V: {critic_value}, next state V: {critic_next_state_value}, advantage {advantage}, "
@@ -355,6 +377,7 @@ for episode in range(num_episodes):
         "actors error: {:.2f}, "
         "actors absolute error: {:.2f}, "
         "episode final state: {:.2f}, "
+        "episode reward: {:.2f}, "
         "rewards mean: {:.2f}, "
        )
     print(template.format(
@@ -367,6 +390,7 @@ for episode in range(num_episodes):
         np.mean(actor_losses),
         np.mean(np.abs(actor_losses)),
         env.fpp.get_current_sp_objective(),
+        np.mean(episode_reward),
         np.mean(rewards_history[-10:]),
     ))
 
