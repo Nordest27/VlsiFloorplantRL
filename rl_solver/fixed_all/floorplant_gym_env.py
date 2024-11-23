@@ -47,7 +47,7 @@ class FloorPlantEnv(gym.Env):
     previous_obj: float
 
     n: int
-    max_steps: int = 5
+    max_steps: int = 10
     steps: int = 0
 
     def __init__(self, n: int):
@@ -112,11 +112,12 @@ class FloorPlantEnv(gym.Env):
             self.rand_ini_fpp = self.fpp.copy()
             self.rand_best_fpp = self.fpp.copy()
 
+
         self.fpp = self.ini_fpp.copy()
         self.rand_fpp = self.rand_ini_fpp.copy()
 
-        self.fpp.shuffle_sp()
-        self.rand_fpp.shuffle_sp()
+#         self.fpp.shuffle_sp()
+#         self.rand_fpp.shuffle_sp()
         self.previous_obj = self.fpp.get_current_sp_objective()
 
         self.steps = 0
@@ -135,10 +136,6 @@ class FloorPlantEnv(gym.Env):
 
         i, j, move = action
         self.steps += 1
-        if i == self.fpp.x()[0]:
-            return self.observation, 1, self.steps > self.max_steps, {}
-        else:
-            return self.observation, 0, self.steps > self.max_steps, {}
         if i >= self.n or j >= self.n or i == j:
             print("Stop!")
             print(i, j)
@@ -153,8 +150,8 @@ class FloorPlantEnv(gym.Env):
         # elif move == 9:
         if not just_step:
             pass
-#             self.fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
-#             self.rand_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
+            self.fpp.apply_simulated_annealing(0.101, 1.0-1e-3)
+            self.rand_fpp.apply_simulated_annealing(0.101, 1.0-1e-3)
 
         obj = self.fpp.get_current_sp_objective()
         rand_obj = self.rand_fpp.get_current_sp_objective()
@@ -174,7 +171,7 @@ class FloorPlantEnv(gym.Env):
             tuple(tuple(r) for r in self.fpp.weighted_connections())
         ])
         assert self.observation_space.contains(self.observation)
-        return self.observation, (self.previous_obj-obj)/self.ini_obj, move == 9 or self.steps > self.max_steps, {}
+        return self.observation, (previous_obj-obj)/self.ini_obj, move == 9 or self.steps > self.max_steps, {}
 
     def render(self):
         self.fpp.visualize()
