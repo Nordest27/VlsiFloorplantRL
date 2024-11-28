@@ -1,11 +1,18 @@
 from collections import deque
 import numpy as np
 import tensorflow as tf
+from tensorflow.keras.layers import Input, Dense, Flatten, LeakyReLU
+from tensorflow.keras.applications import EfficientNetB0
+from tensorflow.keras import Model
 from tensorflow import keras, GradientTape
 import random
 import os
+
+from tensorflow.python.framework.c_api_util import tf_buffer
+
 from floorplant_gym_env import FloorPlantEnv
-from tensorflow.keras.layers import MultiHeadAttention, LayerNormalization, Dense, Dropout, Lambda
+from bisect import bisect
+
 
 print("Num GPUs Available: ",
     len(tf.config.experimental.list_physical_devices('GPU')))
@@ -13,230 +20,305 @@ print("Num GPUs Available: ",
 # tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
 # Set threading options
-tf.config.threading.set_inter_op_parallelism_threads(8)  # Adjust based on your CPU cores
-tf.config.threading.set_intra_op_parallelism_threads(8)
+tf.config.threading.set_inter_op_parallelism_threads(16)  # Adjust based on your CPU cores
+tf.config.threading.set_intra_op_parallelism_threads(16)
 
 
 # Initialize environment
-env = FloorPlantEnv(30)
+env = FloorPlantEnv(16)
+
 n_moves = 9
-
+weighted_connections_size = env.n*(env.n-1)//2
 # Define model parameters
-hidden_nodes = 2**8
+hidden_nodes = 2**9
 
-# Actor network with attention
-actor_input_layer = keras.layers.Input((env.n + env.n,))  # Input shape
-# actor_embedding = keras.layers.Embedding(input_dim=env.n, output_dim=int(np.ceil(np.log2(env.n))))(actor_input_layer)
-# actor_flatten = keras.layers.Flatten()(actor_embedding)
+# Define EfficientNetB0 as the feature extractor
+effnet_base = EfficientNetB0(include_top=False, input_shape=(max(env.n, 32), max(env.n, 32), 3))  # Use EfficientNet with no top layer
+effnet_base.trainable = True
 
-# # Reshape to (batch_size, seq_len, feature_dim) for attention
-# reshaped_input = Lambda(lambda x: tf.expand_dims(x, axis=1))(actor_flatten)
-#
-# # Apply multi-head attention
-# attention_output = MultiHeadAttention(num_heads=2, key_dim=32)(
-#     query=reshaped_input, key=reshaped_input, value=reshaped_input
-# )
-#
-# # Normalize and add dropout
-# attention_output = LayerNormalization()(attention_output)
-#
-# # Flatten for dense layers
-# attention_flattened = tf.keras.layers.Flatten()(attention_output)
+# Input layer for floorplan images
+actor_input_layer = Input(shape=(max(env.n, 32), max(env.n, 32), 3))  # Input shape for the images
 
-# Dense layers
-actor_hidden_layer = tf.keras.layers.LeakyReLU(negative_slope=0.1)(Dense(hidden_nodes)(actor_input_layer))
-actor_hidden_layer = tf.keras.layers.LeakyReLU(negative_slope=0.1)(Dense(hidden_nodes)(actor_hidden_layer))
-actor_hidden_layer = tf.keras.layers.LeakyReLU(negative_slope=0.1)(Dense(hidden_nodes)(actor_hidden_layer))
-actor_hidden_layer = tf.keras.layers.LeakyReLU(negative_slope=0.1)(Dense(hidden_nodes)(actor_hidden_layer))
-# actor_hidden_layer = Dense(hidden_nodes, activation="tanh")(actor_hidden_layer)
+# Get the features from EfficientNetB0 (this is the backbone)
+effnet_output = effnet_base(actor_input_layer)
 
-# Outputs
-wfa = Dense(env.n, activation="softmax")(actor_hidden_layer)
-wsa = Dense(env.n, activation="softmax")(actor_hidden_layer)
-wma = Dense(n_moves, activation="softmax")(actor_hidden_layer)
-critic = keras.layers.Dense(1)(actor_hidden_layer)
-# Compile actor model
-model = keras.Model(inputs=actor_input_layer, outputs=[wfa, wsa, wma, critic])
+# Flatten the output of EfficientNet to feed into the actor and critic
+effnet_output_flattened = Flatten()(effnet_output)
 
-# Critic network
-# critic_input_layer = keras.layers.Input((env.n + env.n,))
-# critic_hidden_layer = keras.layers.Embedding(env.n, int(np.ceil(np.log2(env.n))))(critic_input_layer)
-# critic_hidden_layer = keras.layers.Flatten()(critic_hidden_layer)
-# critic_hidden_layer = keras.layers.LeakyReLU(negative_slope=0.1)(keras.layers.Dense(hidden_nodes)(critic_hidden_layer))
-# critic_hidden_layer = keras.layers.LeakyReLU(negative_slope=0.1)(keras.layers.Dense(hidden_nodes)(critic_hidden_layer))
-# critic_output = keras.layers.Dense(1)(critic_hidden_layer)
+# Action outputs
+wfa = Dense(env.n, activation="softmax", name="wfa")(effnet_output_flattened)
+wsa = Dense(env.n, activation="softmax", name="wsa")(effnet_output_flattened)
+wma = Dense(n_moves, activation="softmax", name="wma")(effnet_output_flattened)
 
-# critic = keras.Model(inputs=critic_input_layer, outputs=critic_output)
-optimizer = keras.optimizers.Adam(learning_rate=1e-3)
+# Value output
+critic = Dense(1, name="critic")(effnet_output_flattened)
+
+# Combine the actor and critic outputs into a single model
+model = Model(inputs=actor_input_layer, outputs=[wfa, wsa, wma, critic])
+
+# Compile the model with an optimizer
+optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
+
+# Display model summary (optional)
+model.summary()
 
 # Training parameters
-replay_buffer = deque(maxlen=10000)
-batch_size = 64
-gamma = 0.99
-entropy_coefficient = 0*1e-7
-num_episodes = 10000
+batch_size = 128
+sampling_batch = 8
+env.max_steps = batch_size
+
+gamma = 1.0
+adv_lambda = 0.5
+entropy_coefficient = 1e-1
 eps = np.finfo(np.float32).eps.item()
 
-# Training loop
-running_reward = 0
-for episode in range(num_episodes):
-    if episode % 10 == 0:
-#             search_epsilon = 0.5
-        print("Simulated Annealing solution:", env.sa_fpp.get_current_sp_objective())
-        env.sa_fpp.visualize()
-        env.best_fpp.visualize()
-    env.reset()
-    state = np.ravel(env.flattened_observation()[0])  # Flatten state
-    episode_reward = 0
-    done = False
 
-    while not done:
-        inp = tf.expand_dims(tf.convert_to_tensor(state, dtype=tf.float32), 0)
-        wfp, wsp, wmp, critic_value = model(inp)
+def update_model(states, actions, rewards, next_states):
 
-        # Action sampling
-        wfp_dist = wfp.numpy()[0]
-        wsp_dist = wsp.numpy()[0]
-        wmp_dist = wmp.numpy()[0]
+    with GradientTape() as tape:
+        critic_values = tf.squeeze(model(states)[3], axis=-1)
+        critic_next_values = tf.squeeze(model(next_states)[3], axis=-1)
+        target_values = rewards + gamma * critic_next_values
+        #target_values = rewards
+        advantages = target_values - critic_values
+        #advantages = (advantages - tf.reduce_mean(advantages)) / (tf.math.reduce_std(advantages) + 1e-8)
+        critic_loss = 0.5*tf.reduce_mean(advantages ** 2)
 
-        wfp_dist /= sum(wfp_dist)
-        first_choice = np.random.choice(env.n, p=wfp_dist)
+    # Backpropagate loss
+    grads = tape.gradient(
+        (tf.constant(0), tf.constant(0), tf.constant(0), critic_loss),
+        model.trainable_variables
+    )
+    optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
-        wsp_dist[first_choice] = 0
-        wsp_dist /= sum(wsp_dist)
-        second_choice = np.random.choice(env.n, p=wsp_dist)
+    with GradientTape() as tape:
+        # Predict actions for the batch
+        predicted_wfp, predicted_wsp, predicted_wmp, _ = model(states)
 
-        wmp_dist /= sum(wmp_dist)
-        move = np.random.choice(n_moves, p=wmp_dist)
+        # Create masks for selected actions
+        chosen_wfp = tf.one_hot([a[0] for a in actions], env.n)
+        chosen_wsp = tf.one_hot([a[1] for a in actions], env.n)
+        chosen_wmp = tf.one_hot([a[2] for a in actions], n_moves)
 
-        action = (first_choice, second_choice, move)
-        _, reward, done, _ = env.step(action)
-        next_state = np.ravel(env.flattened_observation()[0])
+        # Compute log probabilities for selected actions
+        log_probs_wfp = tf.reduce_sum(chosen_wfp * tf.math.log(predicted_wfp + eps), axis=1)
+        log_probs_wsp = tf.reduce_sum(chosen_wsp * tf.math.log(predicted_wsp + eps), axis=1)
+        log_probs_wmp = tf.reduce_sum(chosen_wmp * tf.math.log(predicted_wmp + eps), axis=1)
 
-        # Store transition in replay buffer
-        replay_buffer.append((state, action, reward, next_state, done))
-        state = next_state
-        episode_reward += reward
+        # Compute actor loss weighted by advantages
+        actor_loss_wfp = -tf.reduce_mean(log_probs_wfp * advantages)
+        actor_loss_wsp = -tf.reduce_mean(log_probs_wsp * advantages)
+        actor_loss_wmp = -tf.reduce_mean(log_probs_wmp * advantages)
 
-        # Initialize loss trackers
-        total_critic_loss = 0.0
-        total_actor_loss = 0.0
-        update_steps = 0  # Count the number of updates per episode
+        # Add entropy regularization
+        actor_loss_wfp += entropy_coefficient * tf.reduce_mean(predicted_wfp * tf.math.log(predicted_wfp + eps))
+        actor_loss_wsp += entropy_coefficient * tf.reduce_mean(predicted_wsp * tf.math.log(predicted_wsp + eps))
+        actor_loss_wmp += entropy_coefficient * tf.reduce_mean(predicted_wmp * tf.math.log(predicted_wmp + eps))
 
-        # Perform batch updates
-        if len(replay_buffer) >= batch_size:
-            batch = random.sample(replay_buffer, batch_size)
-            states, actions, rewards, next_states, dones = zip(*batch)
+        # Combine all losses
+        actor_loss = (
+            actor_loss_wfp,
+            actor_loss_wsp,
+            actor_loss_wmp,
+        )
 
-            # Convert batch to tensors
-            states = tf.convert_to_tensor(np.array(states), dtype=tf.float32)
-            next_states = tf.convert_to_tensor(np.array(next_states), dtype=tf.float32)
-            rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
-            dones = tf.convert_to_tensor(dones, dtype=tf.float32)
+    # Backpropagate loss
+    grads = tape.gradient((*actor_loss, tf.constant(0)), model.trainable_variables)
+    optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
-            # Update
-            with GradientTape() as tape:
-                critic_values = tf.squeeze(model(states)[3], axis=-1)
-                critic_next_values = tf.squeeze(model(next_states)[3], axis=-1)
-                target_values = rewards + gamma * critic_next_values * (1.0 - dones)
-                advantages = target_values - critic_values
-                critic_loss = tf.reduce_mean(advantages ** 2)
 
-            # Backpropagate loss
-            grads = tape.gradient(
-                (tf.constant(0), tf.constant(0), tf.constant(0), critic_loss),
-                model.trainable_variables
-            )
-            optimizer.apply_gradients(zip(grads, model.trainable_variables))
+    return actor_loss, critic_loss
 
-            with GradientTape() as tape:
-                # Predict actions for the batch
-                predicted_wfp, predicted_wsp, predicted_wmp, _ = model(states)
+def main():
+    # Training parameters
+    buffer = deque(maxlen=batch_size)
+    num_episodes = 10000
 
-                # Create masks for selected actions
-                chosen_wfp = tf.one_hot([a[0] for a in actions], env.n)
-                chosen_wsp = tf.one_hot([a[1] for a in actions], env.n)
-                chosen_wmp = tf.one_hot([a[2] for a in actions], n_moves)
+    # Training loop
+    running_reward = 0
+    for episode in range(num_episodes):
 
-                # Compute log probabilities for selected actions
-                log_probs_wfp = tf.reduce_sum(chosen_wfp * tf.math.log(predicted_wfp + eps), axis=1)
-                log_probs_wsp = tf.reduce_sum(chosen_wsp * tf.math.log(predicted_wsp + eps), axis=1)
-                log_probs_wmp = tf.reduce_sum(chosen_wmp * tf.math.log(predicted_wmp + eps), axis=1)
+        sps_to_expand = []
+        states_to_expand = []
+        rand_sp_to_expand = []
 
-                # Compute actor loss weighted by advantages
-                actor_loss_wfp = -tf.reduce_mean(log_probs_wfp * advantages)
-                actor_loss_wsp = -tf.reduce_mean(log_probs_wsp * advantages)
-                actor_loss_wmp = -tf.reduce_mean(log_probs_wmp * advantages)
+        for i in range(sampling_batch):
+            env.reset()
+            state = env.draw(env.fpp)
+            #state = np.ravel(np.append(env.flattened_observation()[0], env.flattened_observation()[1]))
+            sps_to_expand.append((env.fpp.x(), env.fpp.y()))
+            states_to_expand.append(state)
+            rand_sp_to_expand.append((env.rand_fpp.x(), env.rand_fpp.y()))
 
-                # Add entropy regularization
-                entropy_loss_wfp = entropy_coefficient * tf.reduce_sum(predicted_wfp * tf.math.log(predicted_wfp + eps))
-                entropy_loss_wsp = entropy_coefficient * tf.reduce_sum(predicted_wsp * tf.math.log(predicted_wsp + eps))
-                entropy_loss_wmp = entropy_coefficient * tf.reduce_sum(predicted_wmp * tf.math.log(predicted_wmp + eps))
 
-                # Iterate through batch
-#                 for idx, (state, action) in enumerate(zip(states, actions)):
-#                     first_choice, second_choice, move = action
-#                     inp = tf.expand_dims(state, 0)
-#                     wfp, wsp, wmp, _ = model(inp)
-#
-#                     # Log probabilities for chosen actions
-#                     log_wfp = tf.math.log(wfp[0, first_choice] + eps)
-#                     log_wsp = tf.math.log(wsp[0, second_choice] + eps)
-#                     log_wmp = tf.math.log(wmp[0, move] + eps)
-#
-#                     # Compute individual losses weighted by advantage
-#                     actor_loss_wfp += -log_wfp * advantages[idx]
-#                     actor_loss_wsp += -log_wsp * advantages[idx]
-#                     actor_loss_wmp += -log_wmp * advantages[idx]
-#
-#                 # Add entropy regularization (to encourage exploration) for each head
-#                 entropy_loss_wfp = entropy_coefficient * tf.reduce_sum(wfp * tf.math.log(wfp + eps))
-#                 entropy_loss_wsp = entropy_coefficient * tf.reduce_sum(wsp * tf.math.log(wsp + eps))
-#                 entropy_loss_wmp = entropy_coefficient * tf.reduce_sum(wmp * tf.math.log(wmp + eps))
-#
-                # Combine all losses
-                actor_loss = (
-                    actor_loss_wfp + entropy_loss_wfp,
-                    actor_loss_wsp + entropy_loss_wsp,
-                    actor_loss_wmp + entropy_loss_wmp,
+        expanded_states = set()
+        rand_expanded_states = set()
+
+        if episode % 10 == 9:
+            print("Simulated Annealing solution:", env.sa_fpp.get_current_sp_objective())
+            env.sa_fpp.visualize()
+            env.best_fpp.visualize()
+            pass
+            """
+            inp = tf.expand_dims(tf.convert_to_tensor(state, dtype=tf.float32), 0)
+            wfp, wsp, wmp, critic_value = model(inp)
+
+            # Action sampling
+            wfp_dist = wfp.numpy()[0]
+            wsp_dist = wsp.numpy()[0]
+            wmp_dist = wmp.numpy()[0]
+
+            first_choice = np.argmax(wfp_dist)
+
+            wsp_dist[first_choice] = 0
+            wsp_dist /= sum(wsp_dist)
+            second_choice = np.argmax(wsp_dist)
+
+            move = np.argmax(wmp_dist)
+
+            action = (first_choice, second_choice, move)
+            print(f"Applied move {action}, "
+                  f"with probabilities {wfp_dist[first_choice]}, {wsp_dist[second_choice]}, {wmp_dist[move]}")
+            env.step(action)
+            env.ini_fpp = env.fpp
+            env.rand_ini_fpp = env.rand_fpp
+            """
+
+        episode_reward = 0
+        done = False
+        while not done:
+            sp_indices = np.random.choice(len(states_to_expand), sampling_batch, replace=False)
+            states = [states_to_expand[i] for i in sp_indices]
+
+            inp = tf.convert_to_tensor(states, dtype=tf.float32)
+            lwfp, lwsp, lwmp, _ = model(inp)
+
+            for bi in range(len(sp_indices)):
+                sp_i = sp_indices[bi]
+                env.fpp.set_sp(*sps_to_expand[sp_i])
+                env.rand_fpp.set_sp(*rand_sp_to_expand[random.randint(0, len(rand_sp_to_expand)-1)])
+                expanded_states.add(str((env.fpp.x(), env.fpp.y())))
+                rand_expanded_states.add(str((env.rand_fpp.x(), env.rand_fpp.y())))
+
+                # Action sampling
+                wfp_dist = lwfp[bi].numpy()
+                wsp_dist = lwsp[bi].numpy()
+                wmp_dist = lwmp[bi].numpy()
+                """
+                first_choice, second_choice, move = -1, -1, -1
+                new_state_found = False
+                prev_sp = (env.fpp.x(), env.fpp.y())
+                while not new_state_found:
+                    env.fpp.set_sp(*prev_sp)
+
+                    if first_choice != -1 and random.random() < 0.33:
+                        wfp_dist[first_choice] = eps
+                    wfp_dist /= sum(wfp_dist)
+                """
+
+                first_choice = np.random.choice(env.n, p=wfp_dist)
+
+                """
+                    if second_choice != -1 and wfp_dist[first_choice] > eps and random.random() < 0.66:
+                        wsp_dist[second_choice] = eps
+                """
+                wsp_dist[first_choice] = eps
+
+                wsp_dist /= sum(wsp_dist)
+                second_choice = np.random.choice(env.n, p=wsp_dist)
+
+                """
+                    if move != -1 and wfp_dist[first_choice] > eps and wsp_dist[second_choice] > eps:
+                        wmp_dist[move] = eps
+                    wmp_dist /= sum(wmp_dist)
+                """
+                move = np.random.choice(n_moves, p=wmp_dist)
+
+                action = (first_choice, second_choice, move)
+                _, reward, done, _ = env.step(action)
+                """
+                    if str((env.fpp.x(), env.fpp.y())) not in expanded_states:
+                        new_state_found = True
+                    else:
+                        pass
+                        #print(first_choice, second_choice, move)
+                        #print("Repeated state")
+                """
+
+                if episode % 10 == 8 and bi == 0:
+                    print(first_choice, second_choice, move)
+
+                next_state = env.draw(env.fpp)
+                #next_state = np.ravel(np.append(env.flattened_observation()[0], env.flattened_observation()[1]))
+
+                # Store transition in replay buffer
+                episode_reward += reward
+                buffer.append((state, action, reward, next_state))
+
+                if str((env.fpp.x(), env.fpp.y())) not in expanded_states:# and reward > 0:
+                    sps_to_expand.append((env.fpp.x(), env.fpp.y()))
+                    states_to_expand.append(next_state)
+                if str((env.rand_fpp.x(), env.rand_fpp.y())) not in rand_expanded_states: # and (reward > 0 or random.random() > 0.75):
+                    rand_sp_to_expand.append((env.rand_fpp.x(), env.rand_fpp.y()))
+
+            """
+            #for bi in range(sampling_batch):
+            #    batch_rewards[bi] = calculate_returns(batch_rewards[bi], [False]*episode_length)
+            
+            buffer = []
+            for bi in range(sampling_batch):
+                for ei in range(episode_length):
+                    buffer.append(
+                        (batch_states[bi][ei], batch_actions[bi][ei], batch_rewards[bi][ei], batch_next_states[bi][ei])
+                    )
+            """
+            # Perform batch updates
+            if len(buffer) >= batch_size:
+                states, actions, rewards, next_states = zip(*buffer)
+                # Convert batch to tensors
+                states = tf.convert_to_tensor(np.array(states), dtype=tf.float32)
+                next_states = tf.convert_to_tensor(np.array(next_states), dtype=tf.float32)
+                rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
+                # Update
+                actor_loss, critic_loss = update_model(states, actions, rewards, next_states)
+                # Accumulate losses for logging
+                total_actor_loss = tf.reduce_sum(actor_loss)
+                total_critic_loss = critic_loss.numpy()
+                buffer = deque(maxlen=batch_size)
+                template = (
+                    "Episode: {}, "
+                    "Rand best obj: {:.2f}, "
+                    "Best obj {:.2f}, "
+                    "Running reward: {:.2f}, "
+                    "Episode reward: {:.2f}, "
+                    "Critic loss: {:.4f}, "
+                    "Actor loss: {:.4f}, "
+                    "Episode final state: {:.2f}, "
+                    "last move: {}"
                 )
 
-            # Backpropagate loss
-            grads = tape.gradient((*actor_loss, tf.constant(0)), model.trainable_variables)
-            optimizer.apply_gradients(zip(grads, model.trainable_variables))
+                print(template.format(
+                    episode,
+                    env.rand_best_fpp.get_current_sp_objective(),
+                    env.best_obj,
+                    running_reward,
+                    episode_reward,
+                    total_critic_loss,
+                    total_actor_loss,
+                    env.fpp.get_current_sp_objective(),
+                    (first_choice, second_choice, move)
+                ))
+            #buffer = deque(maxlen=batch_size)
 
-            # Accumulate losses for logging
-            total_actor_loss += tf.reduce_sum(actor_loss)
-            total_critic_loss += critic_loss.numpy()
-            update_steps += 1
+        # Update running reward
+        if running_reward != 0:
+            running_reward = 0.05 * episode_reward + (1 - 0.05) * running_reward
+        else:
+            running_reward = episode_reward
 
-    # Update running reward
-    running_reward = 0.05 * episode_reward + (1 - 0.05) * running_reward
+        #entropy_coefficient = max(entropy_coefficient*0.99, 1e-6)
 
-    # Log details
-    avg_critic_loss = total_critic_loss / max(update_steps, 1)
-    avg_actor_loss = total_actor_loss / max(update_steps, 1)
+    env.close()
 
-    template = (
-        "Rand best obj: {:.2f}, "
-        "Best obj {:.2f}, "
-        "Running reward: {:.2f}, "
-        "Critic loss: {:.4f}, "
-        "Actor loss: {:.4f}, "
-        "Episode final state: {:.2f}"
-    )
-    print(template.format(
-        env.rand_best_fpp.get_current_sp_objective(),
-        env.best_obj,
-        running_reward,
-        avg_critic_loss,
-        avg_actor_loss,
-        env.fpp.get_current_sp_objective(),
-    ))
-
-    # Reset loss trackers after logging
-    total_critic_loss = 0.0
-    total_actor_loss = 0.0
-    update_steps = 0
-
-env.close()
+if __name__ == "__main__":
+    main()

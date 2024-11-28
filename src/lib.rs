@@ -16,14 +16,6 @@ impl PyFloorPlantProblem {
     #[new]
     pub fn new(n: usize) -> PyFloorPlantProblem {
         let mut fpp = FloorPlantProblem::generate_new(n);
-        simulated_annealing(
-            &mut fpp,
-            100.0,
-            0.1,
-            1.0-1e-4,
-            0.9,
-            true,
-        );
         let obj = fpp.get_wire_length_estimate_and_area(&fpp.best_sp, false);
         println!("Initial State {}", obj.0+obj.1);
         fpp.visualize(&fpp.best_sp);
