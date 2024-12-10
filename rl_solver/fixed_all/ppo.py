@@ -1,48 +1,134 @@
 from collections import deque
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.layers import Input, Dense, Flatten
-from tensorflow.keras.applications import EfficientNetB0
+from tensorflow.keras.layers import Input, Dense, Flatten, Reshape, Conv2DTranspose, Conv2D, MaxPooling2D
+from tensorflow.keras.applications import EfficientNetB7
 from tensorflow.keras import Model
 import random
 
-from floorplant_gym_env import FloorPlantEnv
+from floorplant_gym_env import FloorPlantEnv, save_floorplan_image
 
+import tensorflow as tf
+
+def edge_loss(y_true, y_pred):
+    sobel_x_pred = tf.image.sobel_edges(y_pred)[..., 0]
+    sobel_y_pred = tf.image.sobel_edges(y_pred)[..., 1]
+    sobel_x_true = tf.image.sobel_edges(y_true)[..., 0]
+    sobel_y_true = tf.image.sobel_edges(y_true)[..., 1]
+
+    # Compute the gradient magnitude for both true and predicted images
+    edge_pred = tf.sqrt(tf.square(sobel_x_pred) + tf.square(sobel_y_pred) + 1e-7)
+    edge_true = tf.sqrt(tf.square(sobel_x_true) + tf.square(sobel_y_true) + 1e-7)
+
+    # Return the mean squared error between the true and predicted edges
+    return tf.reduce_mean(tf.square(edge_true - edge_pred))
+
+def total_variation_loss(y_true, y_pred):
+    return tf.reduce_mean( (tf.image.total_variation(y_true) - tf.image.total_variation(y_pred))**2 )
+
+# print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+# ret
 # Hyperparameters
 gamma = 0.99
 clip_epsilon = 0.2
-entropy_coefficient = 0.01
+entropy_coefficient = 0.0001
 critic_coefficient = 0.5
 learning_rate = 1e-3
-ppo_epochs = 1
-minibatch_size = 64
-batch_size = 512
+autoencoder_minibatch_size = 32
+minibatch_size = 128
+batch_size = 2048
+sampling_batch = minibatch_size
+ppo_epochs = batch_size//minibatch_size
 
 # Environment setup
 env = FloorPlantEnv(16)
 n_moves = 9
+
 env.max_steps = batch_size
-obs_shape = (max(env.n, 32), max(env.n, 32), 3)
-weighted_connections_size = env.n * (env.n - 1) // 2
+obs_shape = (int(env.max_offset), int(env.max_offset), 3)
 
+#weighted_connections_size = env.n * (env.n - 1) // 2
 # Define the actor-critic model
-effnet_base = EfficientNetB0(include_top=False, input_shape=obs_shape)
-effnet_base.trainable = True
+#effnet_base = EfficientNetB7(include_top=False, weights=None, input_shape=obs_shape)
+#effnet_base.trainable = True
+# # Model architecture
+# actor_input_layer = Input(shape=obs_shape)
+# effnet_output = effnet_base(actor_input_layer)
+# effnet_output_flattened = Flatten()(effnet_output)
+# Latent space (bottleneck)
+#latent_dim = 512  # Optional size for latent representation
+#latent = Dense(latent_dim, activation='relu')(effnet_output_flattened)
 
-# Model architecture
-actor_input_layer = Input(shape=obs_shape)
-effnet_output = effnet_base(actor_input_layer)
-effnet_output_flattened = Flatten()(effnet_output)
+# Shared Encoder
+encoder_input = Input(shape=obs_shape)
+x = Conv2D(64, (5, 5), activation='relu', padding='same')(encoder_input)
+x = MaxPooling2D((2, 2), padding='same')(x)
+x = Conv2D(128, (5, 5), activation='relu', padding='same')(x)
+x = MaxPooling2D((2, 2), padding='same')(x)
+x = Flatten()(x)
+latent = Dense(8*env.n, activation='relu')(x)
 
-wfa = Dense(env.n, activation="softmax", name="wfa")(effnet_output_flattened)
-wsa = Dense(env.n, activation="softmax", name="wsa")(effnet_output_flattened)
-wma = Dense(n_moves, activation="softmax", name="wma")(effnet_output_flattened)
-critic = Dense(1, name="critic")(effnet_output_flattened)
-coords = Dense(env.n+env.n, name="coords")(effnet_output_flattened)
+actor_layer = Dense(256, activation='relu')(latent)
+actor_layer = Dense(128, activation='relu')(actor_layer)
+wfa = Dense(env.n, activation="softmax", name="wfa")(actor_layer)
+wsa = Dense(env.n, activation="softmax", name="wsa")(actor_layer)
+wma = Dense(n_moves, activation="softmax", name="wma")(actor_layer)
 
-model = Model(inputs=actor_input_layer, outputs=[wfa, wsa, wma, critic])
+critic_layer = Dense(256, activation='relu')(latent)
+critic_layer = Dense(128, activation='relu')(critic_layer)
+critic = Dense(1, name="critic")(critic_layer)
+
+# Decoder input
+decoder_input = Dense((obs_shape[0] // 4) * (obs_shape[1] // 4) * 128, activation='relu')(latent)
+decoder_input_reshaped = Reshape((obs_shape[0] // 4, obs_shape[1] // 4, 128))(decoder_input)
+
+# Upsampling to match the original input shape
+decoder_output = Conv2DTranspose(64, (5, 5), strides=(2, 2), padding='same', activation='relu')(decoder_input_reshaped)
+
+# Final layer to output image with 3 channels (RGB)
+decoder_output = Conv2DTranspose(3, (5, 5), strides=(2, 2), padding='same', activation='relu')(decoder_output)
+
+# Ensure output shape matches the input shape
+assert decoder_output.shape[1:] == obs_shape, f"Decoder output shape {decoder_output.shape[1:]} does not match input shape {obs_shape}."
+
+
+model = Model(inputs=encoder_input, outputs=[wfa, wsa, wma, critic, decoder_output])
 optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 model.summary()
+zero = tf.constant(0)
+
+targets = []
+inps = []
+for _ in range(3000):
+    env.fpp.shuffle_sp()
+    #target = env.draw(env.fpp)
+#     for index, v in enumerate(env.fpp.widths()+env.fpp.heights()):
+#         #target[index] += v/2
+#         target[index] /= env.n
+    #print(x_target)
+    #print(y_target)
+    #env.fpp.visualize()
+    #targets.append(target)
+    inps.append(env.draw(env.fpp).numpy())
+
+for i in range(0):
+    # Get old values for value loss
+    aux_indices = np.random.choice(len(inps), autoencoder_minibatch_size, replace=False)
+    aux_targets = []
+    aux_inps = []
+    for idx in aux_indices:
+        aux_inps.append(inps[idx])
+    with tf.GradientTape() as tape:
+        aux_inps = tf.convert_to_tensor(aux_inps, dtype=tf.float32)
+        values = model(aux_inps)[4]
+        loss = (aux_inps - values)**2 #+ 0.001*edge_loss(aux_inps, values) #+ 0.01*total_variation_loss(aux_inps, values)
+    if i%10 == 0:
+        print(f"Iter {i}: {tf.reduce_mean(loss).numpy()}")
+    grads = tape.gradient((zero, zero, zero, zero, loss), model.trainable_variables)
+    optimizer.apply_gradients(zip(grads, model.trainable_variables))
+    if i%100 == 0:
+        save_floorplan_image(aux_inps[0], "visualizations/current_model_input.png")
+        save_floorplan_image(values[0], "visualizations/current_model_output.png")
 
 def ppo_loss(old_log_probs, log_probs, advantages):
     ratios = tf.exp(log_probs - old_log_probs)
@@ -70,9 +156,10 @@ def update_model(states, actions, rewards, next_states, dones, old_probs):
 
     advantages = (advantages - tf.reduce_mean(advantages)) / (tf.math.reduce_std(advantages) + 1e-8)
 
-    grads = tape.gradient((zero, zero, zero, critic_loss), model.trainable_variables)
+    grads = tape.gradient((zero, zero, zero, critic_loss, zero), model.trainable_variables)
     optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
+    kl_div_reached = False
     # Update actor using PPO with KL divergence stopping
     for _ in range(ppo_epochs):
         kl_wfp = tf.constant(0.0)
@@ -92,7 +179,7 @@ def update_model(states, actions, rewards, next_states, dones, old_probs):
 
             with tf.GradientTape() as tape:
                 # Get new log probabilities for actions
-                wfp, wsp, wmp, _ = model(mb_states)
+                wfp, wsp, wmp, _, _ = model(mb_states)
                 log_probs_wfp = tf.reduce_sum(mb_actions[0] * tf.math.log(wfp + 1e-8), axis=1)
                 log_probs_wsp = tf.reduce_sum(mb_actions[1] * tf.math.log(wsp + 1e-8), axis=1)
                 log_probs_wmp = tf.reduce_sum(mb_actions[2] * tf.math.log(wmp + 1e-8), axis=1)
@@ -118,14 +205,36 @@ def update_model(states, actions, rewards, next_states, dones, old_probs):
                 )
 
             # Backpropagate loss
-            grads = tape.gradient((*actor_loss, tf.constant(0)), model.trainable_variables)
+            grads = tape.gradient((*actor_loss, zero, zero), model.trainable_variables)
             optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
         # If KL divergence exceeds threshold, stop the update
         if kl_wfp > max_KL or kl_wsp > max_KL or kl_wmp > max_KL:
             print(f"KL Divergence exceeded threshold, stopping update: KL_wfp={kl_wfp}, KL_wsp={kl_wsp}, KL_wmp={kl_wmp}")
-            return True
-    return False
+            kl_div_reached = True
+            break
+
+    print("First index:", indices[0])
+    for start in range(0, len(states), minibatch_size):
+        end = start + minibatch_size
+        mb_indices = indices[start:end]
+
+        mb_states = tf.gather(states, batch_indices)
+        mb_next_states = tf.gather(next_states, batch_indices)
+        with tf.GradientTape() as tape:
+            values = model(mb_states)[4]
+            loss = (mb_next_states - values)**2 #+ 0.001*edge_loss(aux_inps, values) #+ 0.01*total_variation_loss(aux_inps, values)
+
+        grads = tape.gradient((zero, zero, zero, zero, loss), model.trainable_variables)
+        optimizer.apply_gradients(zip(grads, model.trainable_variables))
+
+    save_floorplan_image(mb_states[0], "visualizations/current_model_input.png")
+    save_floorplan_image(values[0], "visualizations/current_model_output.png")
+
+    #for i in range(len(mb_states)):
+    #    print(f"Comp index i: {mb_indices[0]}, j: {mb_indices[i]}, cmp: {tf.reduce_sum(mb_states[i]-mb_states[0])}")
+
+    return kl_div_reached
     #return np.mean(actor_loss), critic_loss.numpy()
 
 
@@ -139,11 +248,11 @@ def main():
     running_reward = 0
     for episode in range(num_episodes):
 
-        sps_to_expand = []
-        states_to_expand = []
-        rand_sp_to_expand = []
+        sps_to_expand = [] #deque(maxlen=sampling_batch)
+        states_to_expand = [] #deque(maxlen=sampling_batch)
+        rand_sp_to_expand = [] #deque(maxlen=sampling_batch)
 
-        for i in range(1):
+        for i in range(minibatch_size):
             env.reset()
             state = env.draw(env.fpp)
             #state = np.ravel(np.append(env.flattened_observation()[0], env.flattened_observation()[1]))
@@ -162,19 +271,20 @@ def main():
 
         episode_reward = 0
         done = False
+        initial = True
         while not done:
-            sp_indices = np.random.choice(len(states_to_expand), min(minibatch_size, len(states_to_expand)), replace=False)
+            sp_indices = np.random.choice(len(states_to_expand), min(sampling_batch, len(states_to_expand)), replace=False)
             states = [states_to_expand[i] for i in sp_indices]
 
             inp = tf.convert_to_tensor(states, dtype=tf.float32)
-            lwfp, lwsp, lwmp, _ = model(inp)
+            lwfp, lwsp, lwmp, _, _ = model(inp)
 
             for bi in range(len(sp_indices)):
                 sp_i = sp_indices[bi]
                 env.fpp.set_sp(*sps_to_expand[sp_i])
                 env.rand_fpp.set_sp(*rand_sp_to_expand[random.randint(0, len(rand_sp_to_expand)-1)])
-                expanded_states.add(str((env.fpp.x(), env.fpp.y())))
-                rand_expanded_states.add(str((env.rand_fpp.x(), env.rand_fpp.y())))
+                #expanded_states.add(str((env.fpp.x(), env.fpp.y())))
+                #rand_expanded_states.add(str((env.rand_fpp.x(), env.rand_fpp.y())))
 
                 # Action sampling
                 wfp_dist = lwfp[bi].numpy()
@@ -190,12 +300,19 @@ def main():
                 action = (first_choice, second_choice, move)
                 _, reward, done, _ = env.step(action)
                 next_state = env.draw(env.fpp)
+                if initial:
+                    print((first_choice, second_choice, move))
+                    print(wfp_dist[first_choice], wsp_dist[second_choice], wmp_dist[move])
+                    if wfp_dist[first_choice] > 0.9 and wsp_dist[second_choice] > 0.9 and wmp_dist[move] > 0.9:
+                        print("Very confident! permanently applying move:", (first_choice, second_choice, move))
+                        env.ini_fpp = env.fpp.copy()
+                        env.rand_ini_fpp = env.rand_fpp.copy()
 
                 if episode % 10 == 8 and bi == 0:
                     print(first_choice, second_choice, move)
 
                 buffer.append(
-                    (state, action, reward, next_state, done,
+                    (states[i], action, reward, next_state, done,
                      [tf.math.log(wfp_dist[first_choice]),
                       tf.math.log(wsp_dist[second_choice]),
                       tf.math.log(wmp_dist[move])]
@@ -209,6 +326,7 @@ def main():
                     states_to_expand.append(next_state)
                 if str((env.rand_fpp.x(), env.rand_fpp.y())) not in rand_expanded_states: # and (reward > 0 or random.random() > 0.75):
                     rand_sp_to_expand.append((env.rand_fpp.x(), env.rand_fpp.y()))
+                initial = False
 
             if len(buffer) >= batch_size:
                 print("Updating network...")
@@ -221,7 +339,7 @@ def main():
                     tf.convert_to_tensor(dones, dtype=tf.float32),
                     [tf.convert_to_tensor(p, dtype=tf.float32) for p in zip(*old_probs)],
                 )
-                if kl_stop:
+                if kl_stop or True:
                     buffer.clear()
 
             template = (

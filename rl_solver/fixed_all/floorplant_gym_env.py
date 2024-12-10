@@ -82,53 +82,51 @@ def generate_colors_from_connections(adj_matrix, num_components):
     return np.array(colors)
 
 
+import tensorflow as tf
+
 def draw_floorplan_with_colors(
-        widths, heights, h_offsets, v_offsets, colors, canvas_size=(64, 64)
+    widths, heights, h_offsets, v_offsets, colors, canvas_size=(64, 64)
 ):
-    # Calculate the total layout dimensions
-    total_width = max(h_offsets[i] + widths[i] for i in range(len(widths)))
-    total_height = max(v_offsets[i] + heights[i] for i in range(len(heights)))
+    # Convert inputs to tensors for TensorFlow operations
+    widths = tf.convert_to_tensor(widths, dtype=tf.int32)
+    heights = tf.convert_to_tensor(heights, dtype=tf.int32)
+    h_offsets = tf.convert_to_tensor(h_offsets, dtype=tf.int32)
+    v_offsets = tf.convert_to_tensor(v_offsets, dtype=tf.int32)
+    colors = tf.convert_to_tensor(colors, dtype=tf.float32)
 
-    # Compute scale factors
-    scale_x = canvas_size[1] / total_width
-    scale_y = canvas_size[0] / total_height
-    scale_factor = min(scale_x, scale_y)
-
-    # Create blank canvas
     canvas_height, canvas_width = canvas_size
     canvas = tf.zeros((canvas_height, canvas_width, 3), dtype=tf.float32)
 
-    # Sort components by size
-    component_indices = sorted(range(len(widths)), key=lambda i: widths[i] * heights[i])
+    # Create a grid representing all pixel coordinates
+    y_grid, x_grid = tf.meshgrid(tf.range(canvas_height), tf.range(canvas_width), indexing='ij')
 
-    # Draw each component
-    for i in component_indices:
-        w, h, x_offset, y_offset = widths[i], heights[i], h_offsets[i], v_offsets[i]
-        scaled_w = max(int(w * scale_factor), 1)
-        scaled_h = max(int(h * scale_factor), 1)
-        scaled_x_offset = int(x_offset * scale_factor)
-        scaled_y_offset = int(y_offset * scale_factor)
+    # Broadcast dimensions for vectorized comparison
+    y_grid = tf.expand_dims(y_grid, axis=-1)  # Shape: (canvas_height, canvas_width, 1)
+    x_grid = tf.expand_dims(x_grid, axis=-1)  # Shape: (canvas_height, canvas_width, 1)
 
-        # Ensure valid coordinates
-        x_start, x_end = max(0, scaled_x_offset), min(canvas_width, scaled_x_offset + scaled_w)
-        y_start, y_end = max(0, scaled_y_offset), min(canvas_height, scaled_y_offset + scaled_h)
+    # Calculate boundaries for each rectangle
+    x_start = h_offsets
+    x_end = h_offsets + widths
+    y_start = v_offsets
+    y_end = v_offsets + heights
 
-        if x_start < x_end and y_start < y_end:
-            y_coords, x_coords = tf.meshgrid(
-                tf.range(y_start, y_end), tf.range(x_start, x_end), indexing="ij"
-            )
-            flat_indices = tf.reshape(tf.stack([y_coords, x_coords], axis=-1), (-1, 2))
-            flat_colors = tf.repeat(tf.convert_to_tensor(colors[i])[None, :], flat_indices.shape[0], axis=0)
+    # Create masks for all rectangles
+    x_in_rect = (x_grid >= x_start) & (x_grid < x_end)
+    y_in_rect = (y_grid >= y_start) & (y_grid < y_end)
+    in_rect = x_in_rect & y_in_rect  # Shape: (canvas_height, canvas_width, num_rectangles)
 
-            # Align data types
-            flat_indices = tf.cast(flat_indices, tf.int32)
-            flat_colors = tf.cast(flat_colors, canvas.dtype)
+    # Find which rectangle each pixel belongs to
+    rect_mask = tf.reduce_any(in_rect, axis=-1)  # Combined mask for all rectangles
+    rect_indices = tf.argmax(tf.cast(in_rect, tf.int32), axis=-1)  # Index of the rectangle for each pixel
 
-            # Update canvas
-            canvas = tf.tensor_scatter_nd_update(canvas, flat_indices, flat_colors)
+    # Apply colors to the pixels
+    pixel_colors = tf.where(
+        tf.expand_dims(rect_mask, axis=-1),  # Condition: pixel belongs to any rectangle
+        tf.gather(colors, rect_indices),    # Colors for the corresponding rectangles
+        canvas                              # Keep the original canvas color (black)
+    )
 
-    return canvas
-
+    return pixel_colors
 
 
 def to_numpy_array(l: list[int]):
@@ -169,6 +167,7 @@ class FloorPlantEnv(gym.Env):
 
     def __init__(self, n: int):
         self.n = n
+        self.max_offset = n
         self.action_space = spaces.Tuple(
             spaces=[
                 # Which first
@@ -232,12 +231,19 @@ class FloorPlantEnv(gym.Env):
             fpp.offset_widths(),
             fpp.offset_heights(),
             self.colors,
-            (max(self.n, 32), max(self.n, 32))
+            (int(self.max_offset), int(self.max_offset))
         )
 
     def reset(self):
         if not self.fpp:
             self.ini_fpp = PyFloorPlantProblem(self.n)
+            self.fpp = self.ini_fpp.copy()
+            self.max_offset = max(self.fpp.offset_widths() + self.fpp.offset_heights())
+            for _ in range(100):
+                self.fpp.shuffle_sp()
+                self.max_offset = max([self.max_offset, *self.fpp.offset_widths(), *self.fpp.offset_heights()])
+            self.max_offset = 4*(np.round(self.max_offset/4))
+            print("Max offset:", self.max_offset)
             self.colors = generate_colors_from_connections(self.ini_fpp.connected_to(), self.n)
             self.widths = self.ini_fpp.widths()
             self.heights = self.ini_fpp.heights()
@@ -249,7 +255,7 @@ class FloorPlantEnv(gym.Env):
 
             self.sa_fpp = self.fpp.copy()
             print("Simulated Annealing...")
-            self.sa_fpp.apply_simulated_annealing(100, 1.0-1e-2)
+            self.sa_fpp.apply_simulated_annealing(100, 1.0-1e-3)
             print("Simulated Annealing result: ", self.sa_fpp.get_current_sp_objective())
             self.sa_fpp.visualize()
             save_floorplan_image(self.draw(self.sa_fpp), "visualizations/sa_fpp_visualization.png")
@@ -300,8 +306,8 @@ class FloorPlantEnv(gym.Env):
         aux_rand_fpp = self.rand_fpp.copy()
         if not just_step:
             pass
-            #aux_fpp.apply_simulated_annealing(0.101, 1.0-1e-3)
-            #aux_rand_fpp.apply_simulated_annealing(0.101, 1.0-1e-3)
+            #aux_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
+            #aux_rand_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
 
         obj = aux_fpp.get_current_sp_objective()
         rand_obj = aux_rand_fpp.get_current_sp_objective()
