@@ -42,7 +42,7 @@ ppo_epochs = batch_size//minibatch_size
 
 # Environment setup
 env = FloorPlantEnv(16)
-n_moves = 9
+n_moves = 3
 
 env.max_steps = batch_size
 obs_shape = (int(env.max_offset), int(env.max_offset), 3)
@@ -70,9 +70,9 @@ latent = Dense(8*env.n, activation='relu')(x)
 
 actor_layer = Dense(256, activation='relu')(latent)
 actor_layer = Dense(128, activation='relu')(actor_layer)
-wfa = Dense(env.n, activation="softmax", name="wfa")(actor_layer)
-wsa = Dense(env.n, activation="softmax", name="wsa")(actor_layer)
-wma = Dense(n_moves, activation="softmax", name="wma")(actor_layer)
+wfa = Dense(env.n, activation="softmax", name="wfa", use_bias=False)(actor_layer)
+wsa = Dense(env.n, activation="softmax", name="wsa", use_bias=False)(actor_layer)
+wma = Dense(n_moves, activation="softmax", name="wma", use_bias=False)(actor_layer)
 
 critic_layer = Dense(256, activation='relu')(latent)
 critic_layer = Dense(128, activation='relu')(critic_layer)
@@ -91,15 +91,24 @@ decoder_output = Conv2DTranspose(3, (5, 5), strides=(2, 2), padding='same', acti
 # Ensure output shape matches the input shape
 assert decoder_output.shape[1:] == obs_shape, f"Decoder output shape {decoder_output.shape[1:]} does not match input shape {obs_shape}."
 
+# Decoder input
+decoder2_input = Dense((obs_shape[0] // 4) * (obs_shape[1] // 4) * 128, activation='relu')(latent)
+decoder2_input_reshaped = Reshape((obs_shape[0] // 4, obs_shape[1] // 4, 128))(decoder2_input)
 
-model = Model(inputs=encoder_input, outputs=[wfa, wsa, wma, critic, decoder_output])
+# Upsampling to match the original input shape
+decoder2_output = Conv2DTranspose(64, (5, 5), strides=(2, 2), padding='same', activation='relu')(decoder2_input_reshaped)
+
+# Final layer to output image with 3 channels (RGB)
+decoder2_output = Conv2DTranspose(3, (5, 5), strides=(2, 2), padding='same', activation='relu')(decoder2_output)
+
+model = Model(inputs=encoder_input, outputs=[wfa, wsa, wma, critic, decoder_output, decoder2_output])
 optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 model.summary()
 zero = tf.constant(0)
 
 targets = []
 inps = []
-for _ in range(3000):
+for _ in range(1000):
     env.fpp.shuffle_sp()
     #target = env.draw(env.fpp)
 #     for index, v in enumerate(env.fpp.widths()+env.fpp.heights()):
@@ -111,7 +120,7 @@ for _ in range(3000):
     #targets.append(target)
     inps.append(env.draw(env.fpp).numpy())
 
-for i in range(0):
+for i in range(1000):
     # Get old values for value loss
     aux_indices = np.random.choice(len(inps), autoencoder_minibatch_size, replace=False)
     aux_targets = []
@@ -124,7 +133,7 @@ for i in range(0):
         loss = (aux_inps - values)**2 #+ 0.001*edge_loss(aux_inps, values) #+ 0.01*total_variation_loss(aux_inps, values)
     if i%10 == 0:
         print(f"Iter {i}: {tf.reduce_mean(loss).numpy()}")
-    grads = tape.gradient((zero, zero, zero, zero, loss), model.trainable_variables)
+    grads = tape.gradient((zero, zero, zero, zero, loss, zero), model.trainable_variables)
     optimizer.apply_gradients(zip(grads, model.trainable_variables))
     if i%100 == 0:
         save_floorplan_image(aux_inps[0], "visualizations/current_model_input.png")
@@ -156,7 +165,7 @@ def update_model(states, actions, rewards, next_states, dones, old_probs):
 
     advantages = (advantages - tf.reduce_mean(advantages)) / (tf.math.reduce_std(advantages) + 1e-8)
 
-    grads = tape.gradient((zero, zero, zero, critic_loss, zero), model.trainable_variables)
+    grads = tape.gradient((zero, zero, zero, critic_loss, zero, zero), model.trainable_variables)
     optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
     kl_div_reached = False
@@ -179,7 +188,7 @@ def update_model(states, actions, rewards, next_states, dones, old_probs):
 
             with tf.GradientTape() as tape:
                 # Get new log probabilities for actions
-                wfp, wsp, wmp, _, _ = model(mb_states)
+                wfp, wsp, wmp, _, _, _ = model(mb_states)
                 log_probs_wfp = tf.reduce_sum(mb_actions[0] * tf.math.log(wfp + 1e-8), axis=1)
                 log_probs_wsp = tf.reduce_sum(mb_actions[1] * tf.math.log(wsp + 1e-8), axis=1)
                 log_probs_wmp = tf.reduce_sum(mb_actions[2] * tf.math.log(wmp + 1e-8), axis=1)
@@ -205,7 +214,7 @@ def update_model(states, actions, rewards, next_states, dones, old_probs):
                 )
 
             # Backpropagate loss
-            grads = tape.gradient((*actor_loss, zero, zero), model.trainable_variables)
+            grads = tape.gradient((*actor_loss, zero, zero, zero), model.trainable_variables)
             optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
         # If KL divergence exceeds threshold, stop the update
@@ -214,22 +223,33 @@ def update_model(states, actions, rewards, next_states, dones, old_probs):
             kl_div_reached = True
             break
 
+    indices = np.arange(len(states))
+    np.random.shuffle(indices)
     print("First index:", indices[0])
     for start in range(0, len(states), minibatch_size):
         end = start + minibatch_size
-        mb_indices = indices[start:end]
+        batch_indices = indices[start:end]
 
         mb_states = tf.gather(states, batch_indices)
-        mb_next_states = tf.gather(next_states, batch_indices)
         with tf.GradientTape() as tape:
-            values = model(mb_states)[4]
-            loss = (mb_next_states - values)**2 #+ 0.001*edge_loss(aux_inps, values) #+ 0.01*total_variation_loss(aux_inps, values)
+            decoder_values = model(mb_states)[4]
+            loss = (mb_states - decoder_values)**2 #+ 0.001*edge_loss(aux_inps, values) #+ 0.01*total_variation_loss(aux_inps, values)
 
-        grads = tape.gradient((zero, zero, zero, zero, loss), model.trainable_variables)
+        grads = tape.gradient((zero, zero, zero, zero, loss, zero), model.trainable_variables)
         optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
+        mb_next_states = tf.gather(next_states, batch_indices)
+        with tf.GradientTape() as tape:
+            prediction_values = model(mb_states)[5]
+            loss = (mb_next_states - prediction_values)**2 #+ 0.001*edge_loss(aux_inps, values) #+ 0.01*total_variation_loss(aux_inps, values)
+
+        grads = tape.gradient((zero, zero, zero, zero, zero, loss), model.trainable_variables)
+        optimizer.apply_gradients(zip(grads, model.trainable_variables))
+    print("State:" )
     save_floorplan_image(mb_states[0], "visualizations/current_model_input.png")
-    save_floorplan_image(values[0], "visualizations/current_model_output.png")
+    save_floorplan_image(mb_next_states[0], "visualizations/current_model_next.png")
+    save_floorplan_image(decoder_values[0], "visualizations/current_model_output.png")
+    save_floorplan_image(prediction_values[0], "visualizations/current_model_prediction.png")
 
     #for i in range(len(mb_states)):
     #    print(f"Comp index i: {mb_indices[0]}, j: {mb_indices[i]}, cmp: {tf.reduce_sum(mb_states[i]-mb_states[0])}")
@@ -274,22 +294,23 @@ def main():
         initial = True
         while not done:
             sp_indices = np.random.choice(len(states_to_expand), min(sampling_batch, len(states_to_expand)), replace=False)
-            states = [states_to_expand[i] for i in sp_indices]
+            states = [states_to_expand[sp_i] for sp_i in sp_indices]
+            sps = [sps_to_expand[sp_i] for sp_i in sp_indices]
 
             inp = tf.convert_to_tensor(states, dtype=tf.float32)
-            lwfp, lwsp, lwmp, _, _ = model(inp)
+            lwfp, lwsp, lwmp, _, _, _ = model(inp)
 
-            for bi in range(len(sp_indices)):
-                sp_i = sp_indices[bi]
-                env.fpp.set_sp(*sps_to_expand[sp_i])
+            for sp_i in range(len(states)):
+                env.fpp.set_sp(*sps[sp_i])
+                assert tf.reduce_all(tf.math.equal(env.draw(env.fpp), states[sp_i]))
                 env.rand_fpp.set_sp(*rand_sp_to_expand[random.randint(0, len(rand_sp_to_expand)-1)])
                 #expanded_states.add(str((env.fpp.x(), env.fpp.y())))
                 #rand_expanded_states.add(str((env.rand_fpp.x(), env.rand_fpp.y())))
 
                 # Action sampling
-                wfp_dist = lwfp[bi].numpy()
-                wsp_dist = lwsp[bi].numpy()
-                wmp_dist = lwmp[bi].numpy()
+                wfp_dist = lwfp[sp_i].numpy()
+                wsp_dist = lwsp[sp_i].numpy()
+                wmp_dist = lwmp[sp_i].numpy()
 
                 # Sample actions
                 first_choice = np.random.choice(env.n, p=wfp_dist)
@@ -297,28 +318,28 @@ def main():
                 second_choice = np.random.choice(env.n, p=wsp_dist / wsp_dist.sum())
                 move = np.random.choice(n_moves, p=wmp_dist)
 
+
                 action = (first_choice, second_choice, move)
                 _, reward, done, _ = env.step(action)
                 next_state = env.draw(env.fpp)
                 if initial:
                     print((first_choice, second_choice, move))
                     print(wfp_dist[first_choice], wsp_dist[second_choice], wmp_dist[move])
-                    if wfp_dist[first_choice] > 0.9 and wsp_dist[second_choice] > 0.9 and wmp_dist[move] > 0.9:
+                    if wfp_dist[first_choice] > 0.5 and wsp_dist[second_choice] > 0.5 and  wmp_dist[move] > 0.5:
                         print("Very confident! permanently applying move:", (first_choice, second_choice, move))
                         env.ini_fpp = env.fpp.copy()
                         env.rand_ini_fpp = env.rand_fpp.copy()
 
-                if episode % 10 == 8 and bi == 0:
+                if episode % 10 == 8 and sp_i == 0:
                     print(first_choice, second_choice, move)
 
                 buffer.append(
-                    (states[i], action, reward, next_state, done,
+                    (states[sp_i], action, reward, next_state, done,
                      [tf.math.log(wfp_dist[first_choice]),
                       tf.math.log(wsp_dist[second_choice]),
                       tf.math.log(wmp_dist[move])]
                      )
                 )
-                next_state = env.draw(env.fpp)
                 episode_reward += reward
 
                 if str((env.fpp.x(), env.fpp.y())) not in expanded_states:# and reward > 0:
