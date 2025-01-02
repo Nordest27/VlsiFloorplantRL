@@ -85,8 +85,9 @@ def generate_colors_from_connections(adj_matrix, num_components):
 import tensorflow as tf
 
 def draw_floorplan_with_colors(
-    widths, heights, h_offsets, v_offsets, colors, canvas_size=(64, 64)
+    widths, heights, h_offsets, v_offsets, colors, canvas_size=(64, 64), steps=1, max_steps=1
 ):
+    canvas_height, canvas_width = canvas_size
     # Convert inputs to tensors for TensorFlow operations
     widths = tf.convert_to_tensor(widths, dtype=tf.int32)
     heights = tf.convert_to_tensor(heights, dtype=tf.int32)
@@ -94,7 +95,6 @@ def draw_floorplan_with_colors(
     v_offsets = tf.convert_to_tensor(v_offsets, dtype=tf.int32)
     colors = tf.convert_to_tensor(colors, dtype=tf.float32)
 
-    canvas_height, canvas_width = canvas_size
     canvas = tf.zeros((canvas_height, canvas_width, 3), dtype=tf.float32)
 
     # Create a grid representing all pixel coordinates
@@ -231,7 +231,9 @@ class FloorPlantEnv(gym.Env):
             fpp.offset_widths(),
             fpp.offset_heights(),
             self.colors,
-            (int(self.max_offset), int(self.max_offset))
+            (int(self.max_offset), int(self.max_offset)),
+            self.steps,
+            self.max_steps
         )
 
     def reset(self):
@@ -250,12 +252,15 @@ class FloorPlantEnv(gym.Env):
             save_floorplan_image(self.draw(self.ini_fpp), "visualizations/ini_fpp_visualization.png")
             self.best_fpp = self.ini_fpp.copy()
             self.best_obj = self.best_fpp.get_current_sp_objective()
-            self.ini_obj = self.best_obj
-            self.fpp = self.best_fpp.copy()
+
+#             self.sa_fpp = self.ini_fpp.copy()
+#             self.sa_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
+            self.ini_obj = self.ini_fpp.get_current_sp_objective()
+            self.fpp = self.ini_fpp.copy()
 
             self.sa_fpp = self.fpp.copy()
             print("Simulated Annealing...")
-            self.sa_fpp.apply_simulated_annealing(100, 1.0-1e-3)
+            self.sa_fpp.apply_simulated_annealing(100, 1.0-1e-4)
             print("Simulated Annealing result: ", self.sa_fpp.get_current_sp_objective())
             self.sa_fpp.visualize()
             save_floorplan_image(self.draw(self.sa_fpp), "visualizations/sa_fpp_visualization.png")
@@ -286,36 +291,36 @@ class FloorPlantEnv(gym.Env):
 
     def step(self, action: tuple[int, int, int], just_step: bool = False):
         assert self.action_space.contains(action)
-
         i, j, move = action
         self.steps += 1
         if i >= self.n or j >= self.n or i == j:
             print("Stop!")
             print(i, j)
-            return self.observation, -1, False, {}
+            return self.observation, -1, True, {}
 
+        done = move == 9 or self.steps >= self.max_steps
         previous_obj = self.fpp.get_current_sp_objective()
         if move < 9:
             self.fpp.apply_sp_move(i, j, move)
 
             first_choice, second_choice = np.random.choice(self.n, 2, replace=False)
-            self.rand_fpp.apply_sp_move(first_choice, second_choice, random.randint(0, 8))
+            self.rand_fpp.apply_sp_move(first_choice, second_choice, random.randint(0, 2))
         # elif move == 9:
 
-        aux_fpp = self.fpp.copy()
-        aux_rand_fpp = self.rand_fpp.copy()
-        if not just_step:
-            pass
-            #aux_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
-            #aux_rand_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
+#         aux_fpp = self.fpp.copy()
+#         aux_rand_fpp = self.rand_fpp.copy()
+        # if not just_step:
+#         if done:
+#             self.fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
+#             self.rand_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
 
-        obj = aux_fpp.get_current_sp_objective()
-        rand_obj = aux_rand_fpp.get_current_sp_objective()
+        obj = self.fpp.get_current_sp_objective()
+        rand_obj = self.rand_fpp.get_current_sp_objective()
         if obj < self.best_obj:
-            self.best_fpp = aux_fpp.copy()
+            self.best_fpp = self.fpp.copy()
             self.best_obj = obj
         if rand_obj < self.rand_best_fpp.get_current_sp_objective():
-            self.rand_best_fpp = aux_rand_fpp.copy()
+            self.rand_best_fpp = self.rand_fpp.copy()
         """
         self.observation = tuple([
             tuple(to_one_hot_encoding(self.fpp.x())),
@@ -326,8 +331,9 @@ class FloorPlantEnv(gym.Env):
         ])
         assert self.observation_space.contains(self.observation)
         """
-        #return self.observation, (previous_obj-obj)/self.ini_obj, move == 9 or self.steps > self.max_steps, {}
-        return self.observation, (previous_obj-obj)/self.ini_obj, move == 9 or self.steps > self.max_steps, {}
+        return self.observation, (previous_obj-obj)/self.ini_obj, done, {}
+
+#         return self.observation, max((self.ini_obj-obj)/self.ini_obj, 0) if done else 0, done, {}
 
     def render(self):
         self.fpp.visualize()
