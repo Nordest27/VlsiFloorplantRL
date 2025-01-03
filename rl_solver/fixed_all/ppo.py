@@ -30,18 +30,18 @@ def total_variation_loss(y_true, y_pred):
 # ret
 # Hyperparameters
 
-gamma = 0.95
+gamma = 0.99
 clip_epsilon = 0.2
 entropy_coefficient = .01
 critic_coefficient = 0.5
 learning_rate = 1e-3
 autoencoder_minibatch_size = 32
 minibatch_size = 64
-sampling_batch = 512
+sampling_batch = 64
 
 # Environment setup
-env = FloorPlantEnv(8)
-n_moves = 3
+env = FloorPlantEnv(16)
+n_moves = 9
 
 env.max_steps = 8
 
@@ -178,21 +178,21 @@ def update_model(states, actions, rewards, next_states, dones, old_probs):
     zero = tf.constant(0)
 
     # Get old values for value loss
-#     with tf.GradientTape() as tape:
-#         values = tf.squeeze(model(states)[2], axis=-1)
-#         next_values = tf.squeeze(model(next_states)[2], axis=-1)
-#         target_values = rewards + gamma * next_values * (1 - dones)
-#         #target_values = rewards
-#         advantages = target_values - values
-#         critic_loss = tf.reduce_mean((values - target_values) ** 2)
+    with tf.GradientTape() as tape:
+        values = tf.squeeze(model(states)[2], axis=-1)
+        next_values = tf.squeeze(model(next_states)[2], axis=-1)
+        target_values = rewards + gamma * next_values * (1 - dones)
+        #target_values = rewards
+        advantages = target_values - values
+        critic_loss = tf.reduce_mean((values - target_values) ** 2)
 #         tf.debugging.check_numerics(critic_loss, "Loss contains NaN or Inf")
 
 #     advantages = (advantages - tf.reduce_mean(advantages)) / (tf.math.reduce_std(advantages) + 1e-8)
 
 #     print(f"Critic mean: {tf.reduce_mean(values)}, Critic error: {tf.reduce_mean(advantages)}")
 #
-#     grads = tape.gradient((zero, zero, critic_loss, zero), model.trainable_variables)
-#     optimizer.apply_gradients(zip(grads, model.trainable_variables))
+    grads = tape.gradient((zero, zero, critic_loss, zero), model.trainable_variables)
+    optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
     kl_div_reached = False
     # Update actor using PPO with KL divergence stopping
@@ -209,8 +209,8 @@ def update_model(states, actions, rewards, next_states, dones, old_probs):
             mb_states = tf.gather(states, batch_indices)
             mb_actions = [tf.gather(a, batch_indices) for a in actions]
 
-#             mb_advantages = tf.gather(advantages, batch_indices)
-            mb_rewards = tf.gather(rewards, batch_indices)
+            mb_advantages = tf.gather(advantages, batch_indices)
+#             mb_rewards = tf.gather(rewards, batch_indices)
             mb_old_probs = [tf.gather(p, batch_indices) for p in old_probs]
 
             with tf.GradientTape() as tape:
@@ -222,11 +222,11 @@ def update_model(states, actions, rewards, next_states, dones, old_probs):
 
                 # PPO loss for each action space
                 kl_wfp += tf.reduce_mean(abs(mb_old_probs[0]-log_probs_wfp))/(batch_size/ppo_epochs)
-                actor_loss_wfp = ppo_loss(mb_old_probs[0], log_probs_wfp, mb_rewards)
+                actor_loss_wfp = ppo_loss(mb_old_probs[0], log_probs_wfp, mb_advantages)
                 kl_wsp += tf.reduce_mean(abs(mb_old_probs[1]-log_probs_wsp))/(batch_size/ppo_epochs)
-                actor_loss_wsp = ppo_loss(mb_old_probs[1], log_probs_wsp, mb_rewards)
+                actor_loss_wsp = ppo_loss(mb_old_probs[1], log_probs_wsp, mb_advantages)
                 kl_wmp += tf.reduce_mean(abs(mb_old_probs[2]-log_probs_wmp))/(batch_size/ppo_epochs)
-                actor_loss_wmp = ppo_loss(mb_old_probs[2], log_probs_wmp, mb_rewards)
+                actor_loss_wmp = ppo_loss(mb_old_probs[2], log_probs_wmp, mb_advantages)
 
                 # Add entropy regularization
                 actor_loss_wfp += entropy_coefficient * tf.reduce_mean(wep * tf.math.log(wep + 1e-8))
@@ -390,10 +390,12 @@ def main():
         #                             text += f"{int(10*rewards[i])},"
         #                         print(text)
         #
+        """
         for offset in range(sampling_batch):
             for i in reversed(range(offset, len(episode_buffer), sampling_batch)):
                 if i - sampling_batch >= 0:
                     episode_buffer[i-sampling_batch][2] += gamma*episode_buffer[i][2]
+        """
         buffer.extend(episode_buffer)
         #
         #                 if episode % 100 == 0:
@@ -407,16 +409,19 @@ def main():
         if len(buffer) >= batch_size:
             print("Updating network...")
             states, actions, rewards, next_states, dones, old_probs = zip(*random.sample(buffer, batch_size))
-            kl_stop = update_model(
-                tf.convert_to_tensor(np.array(states), dtype=tf.float32),
-                [tf.one_hot(a, dim) for a, dim in zip(zip(*actions), [env.n, env.n, n_moves])],
-                tf.convert_to_tensor(rewards, dtype=tf.float32),
-                tf.convert_to_tensor(np.array(next_states), dtype=tf.float32),
-                tf.convert_to_tensor(dones, dtype=tf.float32),
-                [tf.convert_to_tensor(p, dtype=tf.float32) for p in zip(*old_probs)],
-            )
-            if kl_stop:
-                buffer.clear()
+            kl_stop = False
+            it_up = 0
+            while not kl_stop and it_up <= 10:
+                kl_stop = update_model(
+                    tf.convert_to_tensor(np.array(states), dtype=tf.float32),
+                    [tf.one_hot(a, dim) for a, dim in zip(zip(*actions), [env.n, env.n, n_moves])],
+                    tf.convert_to_tensor(rewards, dtype=tf.float32),
+                    tf.convert_to_tensor(np.array(next_states), dtype=tf.float32),
+                    tf.convert_to_tensor(dones, dtype=tf.float32),
+                    [tf.convert_to_tensor(p, dtype=tf.float32) for p in zip(*old_probs)],
+                )
+                it_up += 1
+            buffer.clear()
         if done:
             template = (
                 "Episode: {}, "
