@@ -32,18 +32,18 @@ def total_variation_loss(y_true, y_pred):
 
 gamma = 0.99
 clip_epsilon = 0.2
-entropy_coefficient = .05
+entropy_coefficient = .04
 critic_coefficient = 0.5
 learning_rate = 1e-3
 autoencoder_minibatch_size = 32
 minibatch_size = 64
-sampling_batch = 64
+sampling_batch = 8
 
 # Environment setup
-env = FloorPlantEnv(16)
+env = FloorPlantEnv(64)
 n_moves = 3
 
-env.max_steps = 8
+env.max_steps = 32
 
 batch_size = minibatch_size*4
 ppo_epochs = batch_size//minibatch_size

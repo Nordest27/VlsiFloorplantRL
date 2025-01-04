@@ -260,7 +260,7 @@ class FloorPlantEnv(gym.Env):
 
             self.sa_fpp = self.fpp.copy()
             print("Simulated Annealing...")
-            self.sa_fpp.apply_simulated_annealing(100, 1.0-1e-4)
+            self.sa_fpp.apply_simulated_annealing(100, 1.0-1e-5)
             print("Simulated Annealing result: ", self.sa_fpp.get_current_sp_objective())
             self.sa_fpp.visualize()
             save_floorplan_image(self.draw(self.sa_fpp), "visualizations/sa_fpp_visualization.png")
@@ -311,8 +311,8 @@ class FloorPlantEnv(gym.Env):
 #         aux_rand_fpp = self.rand_fpp.copy()
         # if not just_step:
         # if done:
-        #   self.fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
-        #   self.rand_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
+        self.fpp.apply_simulated_annealing(0.101, 1.0-1e-3)
+        self.rand_fpp.apply_simulated_annealing(0.101, 1.0-1e-3)
 
         obj = self.fpp.get_current_sp_objective()
         rand_obj = self.rand_fpp.get_current_sp_objective()
