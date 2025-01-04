@@ -32,7 +32,7 @@ def total_variation_loss(y_true, y_pred):
 
 gamma = 0.99
 clip_epsilon = 0.2
-entropy_coefficient = .01
+entropy_coefficient = .05
 critic_coefficient = 0.5
 learning_rate = 1e-3
 autoencoder_minibatch_size = 32
@@ -41,7 +41,7 @@ sampling_batch = 64
 
 # Environment setup
 env = FloorPlantEnv(16)
-n_moves = 9
+n_moves = 3
 
 env.max_steps = 8
 
@@ -69,7 +69,7 @@ x = MaxPooling2D((2, 2), padding='same')(x)
 x = Conv2D(128, (5, 5), activation='relu', padding='same')(x)
 x = MaxPooling2D((2, 2), padding='same')(x)
 x = Flatten()(x)
-latent = Dense(env.n*8, activation='relu')(x)
+latent = Dense(env.n*12, activation='relu')(x)
 
 actor_layer = Dense(256, activation='relu')(latent)
 actor_layer = Dense(128, activation='relu')(actor_layer)
@@ -77,7 +77,6 @@ wea = Dense(env.n, activation="softmax", name="wfa")(actor_layer)
 # wsa = Dense(env.n//2, activation="softmax", name="wsa")(actor_layer)
 wma = Dense(n_moves, activation="softmax", name="wma")(actor_layer)
 
-#
 # # Clipping logits before softmax
 # def clip_logits(logits):
 #     return tf.clip_by_value(logits, clip_value_min=-5.0, clip_value_max=5.0)
@@ -289,7 +288,7 @@ def update_model(states, actions, rewards, next_states, dones, old_probs):
 # Main training loop
 def main():
     # Training parameters
-    buffer = deque(maxlen=1000)
+    buffer = deque(maxlen=batch_size)
     num_episodes = 10000
 
     # Training loop
@@ -356,7 +355,7 @@ def main():
                 if initial:
                     print((first_choice, second_choice, move))
                     print(wep_dist[first_choice], wep_dist[second_choice], wmp_dist[move])
-#                     if wfp_dist[first_choice] > 0.99 and wsp_dist[second_choice] > 0.99 and  wmp_dist[move] > 0.99:
+#                     if wep_dist[first_choice] + wep_dist[second_choice] > 0.99 and  wmp_dist[move] > 0.99:
 #                         print("Very confident! permanently applying move:", (first_choice, second_choice, move))
 #                         env.ini_fpp = env.fpp.copy()
 #                         env.rand_ini_fpp = env.rand_fpp.copy()
@@ -390,12 +389,10 @@ def main():
         #                             text += f"{int(10*rewards[i])},"
         #                         print(text)
         #
-        """
-        for offset in range(sampling_batch):
-            for i in reversed(range(offset, len(episode_buffer), sampling_batch)):
-                if i - sampling_batch >= 0:
-                    episode_buffer[i-sampling_batch][2] += gamma*episode_buffer[i][2]
-        """
+#         for offset in range(sampling_batch):
+#             for i in reversed(range(offset, len(episode_buffer), sampling_batch)):
+#                 if i - sampling_batch >= 0:
+#                     episode_buffer[i-sampling_batch][2] += gamma*episode_buffer[i][2]
         buffer.extend(episode_buffer)
         #
         #                 if episode % 100 == 0:
@@ -405,7 +402,7 @@ def main():
         #                         for i in range(offset, len(buffer), sampling_batch):
         #                             text += f"{int(10*rewards[i])},"
         #                         print(text)
-
+        print(len(buffer))
         if len(buffer) >= batch_size:
             print("Updating network...")
             states, actions, rewards, next_states, dones, old_probs = zip(*random.sample(buffer, batch_size))

@@ -311,8 +311,8 @@ class FloorPlantEnv(gym.Env):
 #         aux_rand_fpp = self.rand_fpp.copy()
         # if not just_step:
         # if done:
-        #    self.fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
-        #    self.rand_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
+        #   self.fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
+        #   self.rand_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
 
         obj = self.fpp.get_current_sp_objective()
         rand_obj = self.rand_fpp.get_current_sp_objective()
@@ -331,8 +331,8 @@ class FloorPlantEnv(gym.Env):
         ])
         assert self.observation_space.contains(self.observation)
         """
-        #return self.observation, (previous_obj-obj)/self.ini_obj, done, {}
-        return self.observation, max((self.ini_obj-obj)/self.ini_obj, 0) if done else 0, done, {}
+        return self.observation, (previous_obj-obj)/self.ini_obj, done, {}
+        #return self.observation, max((self.ini_obj-obj)/self.ini_obj, 0) if done else 0, done, {}
 
     def render(self):
         self.fpp.visualize()
