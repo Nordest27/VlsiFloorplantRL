@@ -1,8 +1,11 @@
 # Floorplanning with Reinforcement Learning
 To run this project make sure to have rust and python installed, you will need to create a virtual environment, 
 the recomended steps are the following:
- - Create a conda enviromnent and activate it
+ - Use Linux (Ubuntu), as rust comes by default
+ - Create a conda enviromnent and activate it (any other python env works)
  - run:
+   - ``` conda create --name {name} ```
+   - ``` conda activate {name} ```
    - ``` conda install python==3.12 ``` to get a version that works
    - ``` pip install -r rl_solver/requirements.txt ``` to install all dependencies
    - ``` maturin develop -r ``` to compile the rust code and create the python bindings, maturin should have been installed with the dependency installation
