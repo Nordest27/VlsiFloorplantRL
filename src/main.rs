@@ -8,7 +8,7 @@ mod local_search;
 
 fn main() {
     let now = Instant::now();
-    let n: i32 = 25;
+    let n: i32 = 64;
     let mut min_widths = vec![0; n as usize];
     let mut min_heights = vec![0; n as usize];
     let mut blocks_area = vec![0; n as usize];
@@ -49,16 +49,15 @@ fn main() {
 
     };
     fpp_to_visualize.visualize(&fpp_to_visualize.best_sp);
-    return;
-    /*
     simulated_annealing(
         &mut fpp,
         100.0,
         0.1,
-        1.0-1e-5,
-        0.5
+        1.0-1e-6,
+        0.5,
+        false
     );
-    */
+    return;
     /*
     hill_climbing(
         &mut fpp,

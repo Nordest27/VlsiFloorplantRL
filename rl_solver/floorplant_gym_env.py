@@ -82,8 +82,6 @@ def generate_colors_from_connections(adj_matrix, num_components):
     return np.array(colors)
 
 
-import tensorflow as tf
-
 def draw_floorplan_with_colors(
     widths, heights, h_offsets, v_offsets, colors, canvas_size=(64, 64), steps=1, max_steps=1
 ):
@@ -220,8 +218,6 @@ class FloorPlantEnv(gym.Env):
         reals.extend(np.ndarray.flatten(np.array(list(self.observation[3]))))
         for row in self.observation[4]:
             reals.extend(np.ndarray.flatten(np.array(list(row))))
-#         print(np.array(xy))
-#         print(np.array(reals))
         return np.array(xy), np.array(reals)
 
     def draw(self, fpp: PyFloorPlantProblem):
@@ -253,14 +249,12 @@ class FloorPlantEnv(gym.Env):
             self.best_fpp = self.ini_fpp.copy()
             self.best_obj = self.best_fpp.get_current_sp_objective()
 
-#             self.sa_fpp = self.ini_fpp.copy()
-#             self.sa_fpp.apply_simulated_annealing(0.11, 1.0-1e-3)
             self.ini_obj = self.ini_fpp.get_current_sp_objective()
             self.fpp = self.ini_fpp.copy()
 
             self.sa_fpp = self.fpp.copy()
             print("Simulated Annealing...")
-            self.sa_fpp.apply_simulated_annealing(100, 1.0-1e-5)
+            self.sa_fpp.apply_simulated_annealing(100, 1.0-1e-6)
             print("Simulated Annealing result: ", self.sa_fpp.get_current_sp_objective())
             self.sa_fpp.visualize()
             save_floorplan_image(self.draw(self.sa_fpp), "visualizations/sa_fpp_visualization.png")
@@ -270,7 +264,9 @@ class FloorPlantEnv(gym.Env):
 
 
         self.fpp = self.ini_fpp.copy()
+        self.min_fpp = self.ini_fpp.copy()
         self.rand_fpp = self.rand_ini_fpp.copy()
+        self.min_rand_fpp = self.rand_ini_fpp.copy()
 
         #self.fpp.shuffle_sp()
         #self.rand_fpp.shuffle_sp()
@@ -278,16 +274,6 @@ class FloorPlantEnv(gym.Env):
 
         self.steps = 0
         self.observation = None
-        """
-        self.observation = tuple([
-            tuple(to_one_hot_encoding(self.fpp.x())),
-            tuple(to_one_hot_encoding(self.fpp.y())),
-            tuple(self.fpp.offset_widths()),
-            tuple(self.fpp.offset_heights()),
-            tuple(tuple(r) for r in self.fpp.weighted_connections())
-        ])
-        assert self.observation_space.contains(self.observation)
-        """
 
     def step(self, action: tuple[int, int, int], just_step: bool = False):
         assert self.action_space.contains(action)
@@ -305,14 +291,9 @@ class FloorPlantEnv(gym.Env):
 
             first_choice, second_choice = np.random.choice(self.n, 2, replace=False)
             self.rand_fpp.apply_sp_move(first_choice, second_choice, random.randint(0, 2))
-        # elif move == 9:
 
-#         aux_fpp = self.fpp.copy()
-#         aux_rand_fpp = self.rand_fpp.copy()
-        # if not just_step:
-        # if done:
-        self.fpp.apply_simulated_annealing(0.101, 1.0-1e-3)
-        self.rand_fpp.apply_simulated_annealing(0.101, 1.0-1e-3)
+#         self.fpp.apply_simulated_annealing(0.165, 1.0-1e-3)
+#         self.rand_fpp.apply_simulated_annealing(0.165, 1.0-1e-3)
 
         obj = self.fpp.get_current_sp_objective()
         rand_obj = self.rand_fpp.get_current_sp_objective()
@@ -321,16 +302,7 @@ class FloorPlantEnv(gym.Env):
             self.best_obj = obj
         if rand_obj < self.rand_best_fpp.get_current_sp_objective():
             self.rand_best_fpp = self.rand_fpp.copy()
-        """
-        self.observation = tuple([
-            tuple(to_one_hot_encoding(self.fpp.x())),
-            tuple(to_one_hot_encoding(self.fpp.y())),
-            tuple(self.fpp.offset_widths()),
-            tuple(self.fpp.offset_heights()),
-            tuple(tuple(r) for r in self.fpp.weighted_connections())
-        ])
-        assert self.observation_space.contains(self.observation)
-        """
+
         return self.observation, (previous_obj-obj)/self.ini_obj, done, {}
         #return self.observation, max((self.ini_obj-obj)/self.ini_obj, 0) if done else 0, done, {}
 

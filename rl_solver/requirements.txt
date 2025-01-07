@@ -1,0 +1,6 @@
+maturin
+pandas
+gym
+tensorflow
+matplotlib
+scikit-learn
